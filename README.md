@@ -1,1 +1,1 @@
-# oracle-sqlp-study
+# oracle-sqlp
