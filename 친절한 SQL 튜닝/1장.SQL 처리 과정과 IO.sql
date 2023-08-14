@@ -15,6 +15,11 @@ FROM EMP E, (SELECT rownum NO FROM DUAL CONNECT BY LEVEL <= 1000) D;
 CREATE INDEX t_x01 ON t(deptno, no);
 CREATE INDEX t_x02 ON t(deptno, job, no);
 
+DROP INDEX t_x01;
+DROP INDEX t_x02;
+
+COMMIT;
+
 -- t 테이블 통계정보 수집 
 EXEC dbms_stats.gather_table_stats(user, 't');
 
