@@ -145,3 +145,58 @@ WHERE E.DEPTNO LIKE NULL || '%';
 -- 실행계획 확인
 SELECT * FROM TABLE(dbms_xplan.display(NULL, NULL, 'ALL'));
 
+
+-- p112, Index Full Scan
+SQL> create index emp_ename_sal_idx on emp (ename, sal);
+SQL> set autotrace traceonly exp
+SQL> select * from emp
+     where sal > 2000
+     order by ename;
+    
+-------------------------------------------------------------------------------------------------
+| Id  | Operation		    		| Name				| Rows	| Bytes | Cost (%CPU)| Time	|
+-------------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT	    	|					|     6 |   522 |     2(0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| EMP				|     6 |   522 |     2(0)| 00:00:01 |
+|*  2 |   INDEX FULL SCAN	    	| EMP_ENAME_SAL_IDX |     1 |		|     1(0)| 00:00:01 |
+-------------------------------------------------------------------------------------------------
+
+    
+-- p116, Index Unique Scan 
+SQL> set autotrace traceonly exp
+SQL> select empno, ename from emp where empno = 7788;
+ 
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 4120447789
+--------------------------------------------------------------------------------------------
+| Id  | Operation			    	| Name	   		| Rows  | Bytes | Cost (%CPU)	| Time	   |
+--------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT	 	   	|		  	 	|	 1 	|	20 	|	 1   (0)	| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| EMP		   	|	 1 	|	20 	|	 1   (0)	| 00:00:01 |
+|*  2 |   INDEX UNIQUE SCAN	    	| EMP_EMPNO_PK 	|	 1 	|	   	|	 1   (0)	| 00:00:01 |
+--------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("EMPNO"=7788)
+   
+
+-- p125, Index Range Scan Descending
+SQL>set autotrace traceonly exp
+SQL> select * from emp 
+     where empno > 0
+     order by empno desc;
+
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 2095357872
+---------------------------------------------------------------------------------------------
+| Id  | Operation		     			| Name		    | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT	     		|		    	|	 14 |  1218 |	  1   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID 	| EMP	    	|	 14 |  1218 |	  1   (0)| 00:00:01 |
+|*  2 |   INDEX RANGE SCAN DESCENDING	| EMP_EMPNO_PK 	|	  1 |	    |	  2   (0)| 00:00:01 |
+---------------------------------------------------------------------------------------------
+Predicate Information (identified by operation id):
+---------------------------------------------------
+   2 - access("EMPNO">0)
