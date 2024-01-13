@@ -169,3 +169,56 @@ SELECT ENAME, SAL
 	 		)
 	 END AS BONUS
 FROM EMP;
+
+
+-- ======================================================
+--  5. NULL 관련 함수
+
+-- result : NVL-OK
+-- MsSQL : ISNULL(표현식1, 표현식2)
+SELECT NVL(NULL, 'NVL-OK') AS NVL_TEST
+FROM DUAL;
+
+-- result : Not-Null
+SELECT NVL('Not-Null', 'NVL-OK') NVL_TEST
+FROM DUAL;
+
+SELECT ENAME AS 사원명, SAL AS 월급, COMM AS 커미션	
+	 , (SAL * 12) + COMM AS 연봉A, (SAL * 12) + NVL(COMM, 0) AS 연봉B
+FROM EMP;
+
+SELECT MAX(MGR) AS MGR1, NVL(MAX(MGR), 9999) AS MGR2
+FROM EMP
+WHERE ENAME = 'JSC';
+
+-- MsSQL : NULLIF(표현식1, 표현식2)
+SELECT ENAME, EMPNO, MGR, NULLIF(MGR, 7698) AS NIF FROM EMP;
+
+SELECT ENAME, EMPNO, MGR 
+	 , CASE
+	 		WHEN MGR = 7698 THEN NULL 
+	 		ELSE MGR
+	   END AS NUIF
+FROM EMP;
+	 END
+	 
+-- COALESCE(표현식1, 표현식2)
+SELECT ENAME, COMM, SAL, COALESCE(COMM, SAL) AS COAL FROM EMP;
+
+SELECT ENAME, COMM, SAL
+	 , CASE 
+	 		WHEN COMM IS NOT NULL THEN COMM 
+	 		ELSE (CASE
+	 					WHEN SAL IS NOT NULL THEN SAL
+	 					ELSE NULL
+	 			  END
+	 		) 
+	   END AS COAL
+FROM EMP;
+	 
+
+
+
+
+
+FROM EMP;

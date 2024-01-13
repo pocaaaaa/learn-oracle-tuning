@@ -1,0 +1,15 @@
+-- 조인 
+-- ======================================================
+
+SELECT A.ENAME AS 사원명, A.JOB AS 급여, A.SAL AS 급여, B.GRADE AS 급여등급 
+FROM EMP A, SALGRADE B
+WHERE A.SAL BETWEEN B.LOSAL AND B.HISAL;
+
+SELECT A.*, B.DNAME 
+FROM EMP A, DEPT B 
+WHERE B.DEPTNO(+) = A.DEPTNO; 
+
+SELECT A.*, B.DNAME 
+FROM EMP A, DEPT B 
+WHERE B.DEPTNO = A.DEPTNO(+); 
+
