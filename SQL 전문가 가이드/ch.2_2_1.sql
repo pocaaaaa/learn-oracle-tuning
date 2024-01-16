@@ -1,0 +1,113 @@
+-- 서브쿼리
+-- ================================================== 
+--  1) 단일 행 서브 쿼리 
+
+SELECT PLAYER_NAME, "POSITION", BACK_NO 
+FROM PLAYER
+WHERE TEAM_ID = (SELECT TEAM_ID FROM PLAYER WHERE PLAYER_NAME = '박지성')
+ORDER BY PLAYER_NAME;
+
+SELECT PLAYER_NAME, "POSITION", BACK_NO 
+FROM PLAYER
+WHERE HEIGHT <= (SELECT AVG(HEIGHT) FROM PLAYER) 
+ORDER BY PLAYER_NAME;
+
+
+-- ================================================== 
+--  2) 다중 행 서브 쿼리 
+
+SELECT *
+FROM TEAM 
+WHERE TEAM_ID = (SELECT TEAM_ID 
+				 FROM PLAYER 
+				 WHERE PLAYER_NAME = '박지성') 
+ORDER BY TEAM_NAME;
+
+
+-- ================================================== 
+--  3) 다중 컬럼 서브 쿼리 
+
+SELECT TEAM_ID, PLAYER_NAME, "POSITION", BACK_NO, HEIGHT 
+FROM PLAYER
+WHERE (TEAM_ID, HEIGHT) IN (SELECT TEAM_ID, MIN(HEIGHT)
+							FROM PLAYER p 
+							GROUP BY TEAM_ID)
+ORDER BY TEAM_ID, PLAYER_NAME;
+
+
+-- ================================================== 
+--  4) 연관 서브 쿼리 
+
+SELECT t.TEAM_NAME , p.PLAYER_NAME, p."POSITION", p.BACK_NO, p.HEIGHT 
+FROM PLAYER p, TEAM t 
+WHERE p.HEIGHT < (SELECT AVG(x.HEIGHT)
+				  FROM PLAYER x
+				  WHERE x.TEAM_ID = p.TEAM_ID 
+				  GROUP BY x.TEAM_ID )
+AND t.TEAM_ID = p.TEAM_ID 
+ORDER BY 2;
+
+
+-- ================================================== 
+--  5) 그 밖의 위치에서 사용하는 서브 쿼리
+
+SELECT A.PLAYER_NAME, A.HEIGHT
+	 , ROUND((SELECT AVG(X.HEIGHT)
+	 		  FROM PLAYER X
+	 		  WHERE X.TEAM_ID = A.TEAM_ID), 3) 
+FROM PLAYER A;
+
+SELECT B.TEAM_NAME, A.PLAYER_NAME, A.BACK_NO
+FROM (SELECT TEAM_ID, PLAYER_NAME, BACK_NO
+	  FROM PLAYER
+	  WHERE POSITION = 'MF') A 
+	  , TEAM B 
+WHERE B.TEAM_ID = A.TEAM_ID 
+ORDER BY 2;
+
+SELECT PLAYER_NAME, POSITION, BACK_NO, HEIGHT
+FROM (
+	SELECT PLAYER_NAME, POSITION, BACK_NO, HEIGHT
+	FROM PLAYER
+	WHERE HEIGHT IS NOT NULL 
+	ORDER BY HEIGHT DESC
+)
+WHERE ROWNUM <= 5;
+
+SELECT A.TEAM_ID, B.TEAM_NAME, ROUND(AVG(A.HEIGHT),3 )
+FROM PLAYER A, TEAM B 
+WHERE B.TEAM_ID = A.TEAM_ID 
+GROUP BY A.TEAM_ID, B.TEAM_NAME 
+HAVING AVG(A.HEIGHT) < (SELECT AVG(X.HEIGHT)
+           				FROM PLAYER X 
+           				WHERE X.TEAM_ID IN (SELECT TEAM_ID 
+           									FROM TEAM 
+           									WHERE TEAM_NAME = '경남FC'));
+           					
+           								
+-- ================================================== 
+--  6) 뷰 
+
+CREATE VIEW V_PLAYER_TEAM AS 
+SELECT A.PLAYER_NAME, A.POSITION, A.BACK_NO
+	 , B.TEAM_ID, B.TEAM_NAME
+FROM PLAYER A, TEAM B 
+WHERE B.TEAM_ID = A.TEAM_ID;
+
+SELECT * FROM V_PLAYER_TEAM;
+
+CREATE VIEW V_PLAYER_TEAM_FILTER AS 
+SELECT PLAYER_NAME, POSITION, BACK_NO, TEAM_NAME
+FROM V_PLAYER_TEAM           					
+WHERE POSITION IN ('GK', 'MF');
+           					
+SELECT * FROM V_PLAYER_TEAM_FILTER;           					
+           					
+DROP VIEW V_PLAYER_TEAM;
+           		
+DROP VIEW V_PLAYER_TEAM_FILTER;
+           					
+
+
+           					
+  
