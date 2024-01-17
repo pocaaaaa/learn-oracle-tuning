@@ -1,0 +1,401 @@
+-- SELECT WINDOW_FUNCTION (ARGUMENTS) OVER ([PARTITION BY 칼람][ORDER BY 절][WINDOWING 절])
+-- FROM 테이블 명;
+-- WINDOWING 절은 SQL Server에서는 지원하지 않음. 
+
+-- 1. RANK 함수 
+SELECT JOB, ENAME, SAL 
+	 , RANK() OVER (ORDER BY SAL DESC) AS ALL_RK 
+	 , RANK() OVER (PARTITION BY JOB ORDER BY SAL DESC) AS JOB_RK
+FROM EMP;
+
+SELECT JOB, ENAME, SAL 
+	 , RANK() OVER (PARTITION BY JOB ORDER BY SAL DESC) AS JOB_RK
+FROM EMP;
+
+-- 2. DENSE_RANK 함수 
+--  DENSE_RANK 함수는 RANK와 유사하나 동일한 순위를 하나의 건수로 취급하는 점이 다름. 
+SELECT JOB, ENAME, SAL 
+	 , RANK() OVER (ORDER BY SAL DESC) AS RN
+	 , DENSE_RANK() OVER (ORDER BY SAL DESC) AS DR
+FROM EMP;
+
+--[JOB 		| ENAME    | SAL | RN | DR ]
+--PRESIDENT		KING	5000	1	1
+--ANALYST		FORD	3000	2	2
+--ANALYST		SCOTT	3000	2	2
+--MANAGER		JONES	2975	4	3
+--MANAGER		BLAKE	2850	5	4
+--MANAGER		CLARK	2450	6	5
+--SALESMAN		ALLEN	1600	7	6
+--SALESMAN		TURNER	1500	8	7
+--CLERK			MILLER	1300	9	8
+--SALESMAN		WARD	1250	10	9
+--SALESMAN		MARTIN	1250	10	9
+--CLERK			ADAMS	1100	12	10
+--CLERK			JAMES	950		13	11
+--CLERK			SMITH	800		14	12
+
+-- 3. ROW_NUMBER 함수 
+--  ROW_NUMBER 함수는 RANK나 DENSE_RANK 함수가 동일한 값에 대해서는 동일한 순위를 부여하는 데 반해, 
+--  동일한 값이라도 고유한 순위를 부여한다. 
+SELECT JOB, ENAME, SAL
+	 , RANK() OVER (ORDER BY SAL DESC) AS RK 
+	 , ROW_NUMBER() OVER (ORDER BY SAL DESC) AS RN
+	 , ROW_NUMBER() OVER (ORDER BY SAL DESC, ENAME) AS RN2
+FROM EMP;
+
+
+-- ============================================================================
+-- ============================================================================
+-- 1. SUM 함수 
+--  RANGE_UNBOUNDED PRECEDING : 현재 행을 기준으로 파티션 내의 첫 번째 행까지의 범위를 지정. 
+SELECT MGR, ENAME, SAL
+	 , SUM(SAL) OVER (PARTITION BY MGR) AS SAL_SUM
+FROM EMP;
+
+SELECT MGR, ENAME, SAL
+	 -- , SUM(SAL) OVER (PARTITION BY MGR ORDER BY SAL RANGE UNBOUNDED PRECEDING) AS SAL_SUM
+	 , SUM(SAL) OVER (PARTITION BY MGR ORDER BY ENAME RANGE UNBOUNDED PRECEDING) AS SAL_SUM
+FROM EMP; 
+
+-- 2. MAX 함수
+SELECT MGR, ENAME, SAL
+	 , MAX(SAL) OVER (PARTITION BY MGR) AS MAX_SAL
+FROM EMP;
+
+-- 성능에 저하 가능서 있음 
+SELECT MGR, ENAME, SAL 
+FROM (SELECT MGR, ENAME, SAL 
+		   , MAX(SAL) OVER (PARTITION BY MGR) AS MAX_SAL
+	  FROM EMP) 
+WHERE SAL = MAX_SAL;
+
+SELECT MGR, ENAME, SAL
+FROM (
+	SELECT MGR, ENAME, SAL 
+		 , RANK() OVER (PARTITION BY MGR ORDER BY SAL DESC) AS SAL_RK 
+	FROM EMP
+)
+WHERE SAL_RK = 1;
+
+-- 3. MIN 함수 
+SELECT MGR, ENAME, HIREDATE, SAL
+	 , MIN(SAL) OVER (PARTITION BY MGR ORDER BY HIREDATE) AS MIN_SAL
+	 , MIN(SAL) OVER (PARTITION BY MGR ORDER BY SAL) AS MIN_SAL1
+	 , MIN(SAL) OVER (PARTITION BY MGR) AS MIN_SAL2
+FROM EMP;
+
+-- 4. AVG 함수 
+--  ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING 
+--   : 현재 행을 기준으로 파티션 내에서 앞의 한 건, 현재 행, 뒤의 한 건을 범위로 지정. 
+--     (ROWS는 현재 행의 앞뒤 건수를 말함.)
+SELECT MGR, ENAME, HIREDATE, SAL 
+	 , ROUND (AVG (SAL) OVER (PARTITION BY MGR ORDER BY HIREDATE
+	 						  ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)) AS AVG_SAL
+FROM EMP; 
+
+-- 5. COUNT 함수
+--  RANGE BETWEEN 50 PRECEDING AND 150 FOLLOWING
+--   : 현재 행의 급여값을 기준으로 급여가 -50에서 +150의 범위 안에 포함된 모든 행이 대상이 된다.
+--     (RANGE는 현재 행의 데이터 값을 기준으로 앞뒤 데이터 값의 범위를 표시하는 것임)
+SELECT ENAME, SAL 
+	 , COUNT(*) OVER (ORDER BY SAL RANGE BETWEEN 50 PRECEDING AND 150 FOLLOWING) AS EMP_CNT
+FROM EMP;
+
+
+-- ============================================================================
+-- ============================================================================
+-- 1. FIRST_VALUE 함수 (SQL Server 에서는 지원 X)
+--  -> MIN 함수를 활용해 같은 결과를 얻을 수 있음. 
+--  -> RANGE UNBOUNDED PRECE미NG은 현재 행을 기준으로 파티션 내 첫 번째 행까지의 범위를 지정한다.
+SELECT DEPTNO, ENAME, SAL 
+	 , FIRST_VALUE(ENAME) OVER (PARTITION BY DEPTNO ORDER BY SAL DESC
+	 							ROWS UNBOUNDED PRECEDING) AS ENAME_FV
+FROM EMP; 
+
+SELECT DEPTNO, ENAME, SAL 
+	 , FIRST_VALUE(ENAME) OVER (PARTITION BY DEPTNO ORDER BY SAL DESC, ENAME
+	 							ROWS UNBOUNDED PRECEDING) AS ENAME_FV
+FROM EMP; 
+
+-- 2. LAST_VALUE 함수 (SQL Server 에서는 지원 X)
+--  -> MAX 함수를 활용해 같은 결과를 얻을 수 있음. 
+--  -> ROWS BETWEEN UNBOUNDED FOLLOWING은 현재 행을 포함해서 파티션 내의 마지막 행까지의 범위를 지정한다.
+SELECT DEPTNO, ENAME, SAL 
+	 , LAST_VALUE(ENAME) OVER (PARTITION BY DEPTNO ORDER BY SAL DESC
+	 							ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING) AS ENAME_FV
+FROM EMP; 
+
+-- 3. LAG 함수 (SQL Server 에서는 지원 X)
+--  -> LAG 함수를 이용해 파티션별 윈도우에서 이전 몇 번째 행의 값을 가져올 수 있다.
+--  -> LAG 함수는 3개의 ARGUMENTS까지 사용할 수 있다. 두 번째 인자는 몇 번째 앞의 행을 가져올지 결정하는 것이고 (DEFAULT 1)
+--  -> 세 번째 인자는 예를 들어 파티션의 첫 번째 행의 경우 가져올 데이터가 없어 NULL 값이 들어온다.
+SELECT ENAME, HIREDATE, SAL
+	 , LAG(SAL) OVER (ORDER BY HIREDATE) AS LAG_SAL
+FROM EMP 
+WHERE JOB = 'SALESMAN';
+
+SELECT ENAME, HIREDATE, SAL
+	 , LAG(SAL, 2, 0) OVER (ORDER BY HIREDATE) AS LAG_SAL
+FROM EMP 
+WHERE JOB = 'SALESMAN';
+
+-- 4. LEAD 함수 (SQL Server 에서는 지원 X)
+--  -> LEAD 함수를 이용해 파티션별 윈도우에서 이후 몇 번째 행의 값을 가져올 수 있다.
+--  -> LEAD 함수는 3개의 ARGUMENTS까지 사용할 수 있는데, 두 번째 인자는 몇 번째 후의 행을 가져올지 결정하는 것이다(DEFAULT 1). 
+--  -> 세 번째 인자는, 예를 들어 파티션의 마지막 행은 가져올 데이터가 없어 NULL 값이 들어오는데 이 경우 다른 값으로 바꿀 수 있다
+SELECT ENAME, HIREDATE 
+	 , LEAD(HIREDATE, 1) OVER (ORDER BY HIREDATE) AS LEAD_HIREDATE
+FROM EMP 
+WHERE JOB = 'SALESMAN';
+
+
+-- ============================================================================
+-- ============================================================================
+-- 1. RATIO_TO_REPORT 함수 (SQL Server 에서는 지원 X)
+--  -> RATIO_TO_REPORT 함수를 이용해 파티션 내 전체 SUM（칼럼） 값에 대한 행별 칼럼 값의 백분율을 소수점으로 구할 수 있다.
+SELECT ENAME, SAL 
+	 , ROUND(RATIO_TO_REPORT(SAL) OVER (), 2) SAL_RR
+FROM EMP 
+WHERE JOB = 'SALESMAN';
+
+-- 2. PERCENT_RANK 함수 (SQL Server 에서는 지원 X)
+--  -> PERCENT_RANK 함수를 이용해 파티션별 윈도우에서 제일 먼저 나오는 것을 0으로, 
+--     제일 늦게 나오는 것을 1로 해, 값이 아닌 행의 순서별 백분율을 구한다
+SELECT ENAME, SAL, DEPTNO
+	 , PERCENT_RANK() OVER (PARTITION BY DEPTNO ORDER BY SAL DESC) AS PR
+FROM EMP;
+
+-- 3. CUME_DIST 함수 (SQL Server 에서는 지원 X)
+--  -> CUME.DIST 함수를 이용해 파티션별 윈도우의 전체 건수에서 현재 행보다 작거나 같은 건수에 대한 누적백분율을 구한다.
+SELECT DEPTNO, ENAME, SAL
+	 , CUME_DIST() OVER(PARTITION BY DEPTNO ORDER BY SAL DESC) AS CD
+FROM EMP;
+
+-- 4. NTITLE 함수
+--  -> NTILE 함수를 이용해 파티션별 전체 건수를 ARGUMENT 값으로 N 등분한 결과를 구할 수 있다.
+SELECT ENAME, SAL 
+	 , NTILE(4) OVER (ORDER BY SAL DESC) AS NT 
+FROM EMP;
+
+
+-- ============================================================================
+-- ============================================================================
+-- [TOP N 쿼리]
+--  1. ROWNUM 슈도 칼럼  
+--   -> Oracle의 경우 정렬이 완료된 후 데이터의 일부가 출력되는 것이 아니라, 
+--      데이터의 일부가 먼저 추출된 후（ORDER BY 절은 결과 집합을 결정하는데 관여하지 않음） 데이터에 대한 정렬 작업이 일어나므로 주의해야 한다.
+SELECT ENAME, SAL
+FROM EMP 
+WHERE ROWNUM < 4
+ORDER BY SAL DESC;
+
+SELECT ENAME, SAL 
+FROM (
+	SELECT ENAME, SAL 
+	FROM EMP 
+	ORDER BY SAL DESC
+)
+WHERE ROWNUM <= 3;
+
+--  2. TOP 절 
+--   -> SQL Server는 TOP 절을 사용해 결과 집합으로 출력되는 행의 수를 제한할 수 있다.
+--   -> TOP (Expression) [PERCENT] [WITH TIES]
+--SELECT TOP(2) ENAME, SAL
+--FROM EMP 
+--ORDER BY SAL DESC;
+
+--SELECT TOP(2) WITH TIES ENAME, SAL
+--FROM EMP 
+--ORDER BY SAL DESC;
+
+--  3. ROW LIMITING 절 
+--   -> [OFFSET offset {ROW | ROWS}]
+--   -> [FETCH {FIRST | NEXT} [{rowcount ! percent PERCENT}] {ROW | ROWS} {ONLY | WITH TIES}]
+SELECT EMPNO, SAL
+FROM EMP 
+ORDER BY SAL, EMPNO 
+FETCH FIRST 5 ROWS ONLY;
+
+-- 아래와 같이 OFFSET만 기술하면 건너뛴 행 이후의 전체 행이 반환된다.
+SELECT EMPNO, SAL
+FROM EMP 
+ORDER BY SAL, EMPNO 
+OFFSET 5 ROWS;
+
+
+-- ============================================================================
+-- ============================================================================
+-- [계층형 질의와 셀프 조인]
+--  1. 셀프조인
+SELECT WORKER.EMPNO AS 사원번호, WORKER.ENAME AS 사원명, MANAGER.ENAME AS 관리자명 
+FROM EMP WORKER, EMP MANAGER 
+WHERE MANAGER.EMPNO = WORKER.MGR;
+
+SELECT B.EMPNO, B.ENAME, B.MGR
+FROM EMP A, EMP B 
+WHERE A.ENAME = 'JONES'
+AND B.MGR = A.EMPNO;
+
+SELECT C.EMPNO, C.ENAME, C.MGR
+FROM EMP A, EMP B, EMP C
+WHERE A.ENAME = 'JONES'
+AND B.MGR = A.EMPNO
+AND C.MGR = B.EMPNO;
+
+SELECT B.EMPNO, B.ENAME, B.MGR 
+FROM EMP A, EMP B 
+WHERE A.ENAME = 'SMITH'
+AND B.EMPNO = A.MGR;
+
+SELECT C.EMPNO, C.ENAME, C.MGR 
+FROM EMP A, EMP B, EMP C 
+WHERE A.ENAME = 'SMITH'
+AND B.EMPNO = A.MGR
+AND C.EMPNO = B.MGR;
+
+-- 2. 계층형 질의 
+SELECT LEVEL AS LV, LPAD(' ', (LEVEL - 1) * 2) || EMPNO AS EMPNO, MGR, CONNECT_BY_ISLEAF AS ISLEAF
+FROM EMP 
+START WITH MGR IS NULL 
+CONNECT BY MGR = PRIOR EMPNO;
+
+SELECT LEVEL AS LV, LPAD(' ', (LEVEL -1) * 2) || EMPNO AS EMPNO, MGR, CONNECT_BY_ISLEAF AS ISLEAF
+FROM EMP 
+START WITH EMPNO = 7876 
+CONNECT BY EMPNO = PRIOR MGR;
+
+SELECT CONNECT_BY_ROOT (EMPNO) AS ROOT_EMPNO 
+	 , SYS_CONNECT_BY_PATH(EMPNO, ',') AS PATH 
+	 , EMPNO, MGR 
+FROM EMP
+START WITH MGR IS NULL
+CONNECT BY MGR = PRIOR EMPNO;
+
+
+-- ============================================================================
+-- ============================================================================
+-- [PIVOT 절과 UNPIVOT절]
+--  -> PIVOT절은 행을 열로 회전히시고, UNPIVOT 절은 열을 행으로 회전시킨다. 
+
+--  1. PIVOT
+SELECT * 
+FROM (SELECT JOB, DEPTNO, SAL FROM EMP)
+PIVOT (SUM(SAL) FOR DEPTNO IN (10, 20, 30))
+ORDER BY 1;
+
+SELECT *
+FROM (SELECT TO_CHAR(HIREDATE, 'YYYY') AS YYYY, JOB, DEPTNO, SAL FROM EMP) 
+PIVOT (SUM(SAL) AS SAL FOR DEPTNO IN (10 AS D10, 20 AS D20, 30 AS D30))
+ORDER BY 1;
+
+SELECT *
+FROM (SELECT JOB, DEPTNO, SAL FROM EMP)
+PIVOT (SUM(SAL) AS SAL FOR DEPTNO IN (10 AS D10, 20 AS D20, 30 AS D30))
+ORDER BY 1;
+
+SELECT JOB, D20_SAL
+FROM (SELECT JOB, DEPTNO, SAL FROM EMP)
+PIVOT (SUM (SAL) AS SAL FOR DEPTNO IN (10 AS D10, 20 AS D20, 30 AS D30))
+WHERE D20_SAL > 2500
+ORDER BY 1;
+
+SELECT *
+FROM (SELECT JOB, DEPTNO, SAL FROM EMP)
+PIVOT (SUM(SAL) AS SAL, COUNT(*) AS CNT FOR DEPTNO IN (10 AS D10, 20 AS D20))
+ORDER BY 1;
+
+SELECT *
+FROM (SELECT TO_CHAR(HIREDATE, 'YYYY') AS YYYY, JOB, DEPTNO, SAL FROM EMP)
+PIVOT (SUM(SAL) AS SAL, COUNT(*) AS CNT 
+	   FOR (DEPTNO, JOB) IN ((10, 'ANALYST') AS D10A, (10, 'CLERK') AS D10C
+	   						,(20, 'ANALYST') AS D20A, (20, 'CLERK') AS D20C))
+ORDER BY 1;
+
+SELECT JOB
+	 , SUM(CASE DEPTNO WHEN 10 THEN SAL END) AS D10_SAL
+	 , SUM(CASE DEPTNO WHEN 20 THEN SAL END) AS D20_SAL
+	 , SUM(CASE DEPTNO WHEN 30 THEN SAL END) AS D30_SAL
+FROM EMP 
+GROUP BY JOB
+ORDER BY JOB;
+
+--  2. UNPIVOT
+DROP TABLE T1 PURGE;
+
+CREATE TABLE T1 AS 
+SELECT JOB, D10_SAL, D20_SAL, D10_CNT, D20_CNT
+FROM (SELECT JOB, DEPTNO, SAL FROM EMP WHERE JOB IN ('ANALYST', 'CLERK'))
+PIVOT (SUM(SAL) AS SAL, COUNT(*) AS CNT FOR DEPTNO IN (10 AS D10, 20 AS d20));
+
+SELECT * FROM T1 ORDER BY JOB;
+
+SELECT JOB, DEPTNO, SAL
+FROM T1 
+UNPIVOT (SAL FOR DEPTNO IN (D10_SAL, D20_SAL))
+ORDER BY 1, 2;
+
+SELECT JOB, DEPTNO, SAL
+FROM T1
+UNPIVOT (SAL FOR DEPTNO IN (D10_SAL AS 10, D20_SAL AS 20))
+ORDER BY 1, 2;
+
+SELECT JOB, DEPTNO, SAL
+FROM T1 
+UNPIVOT (SAL FOR DEPTNO IN (D10_SAL AS 10, D20_SAL AS 20))
+ORDER BY 1, 2;
+
+SELECT JOB, DEPTNO, SAL
+FROM T1 
+UNPIVOT INCLUDE NULLS (SAL FOR DEPTNO IN (D10_SAL AS 10, D20_SAL AS 20))
+ORDER BY 1, 2;
+
+SELECT *
+FROM T1 
+UNPIVOT ((SAL, CNT) 
+		 FOR DEPTNO IN ((D10_SAL, D10_CNT) AS 10, (D20_SAL, D20_CNT) AS 20))
+ORDER BY 1, 2;
+
+SELECT *
+FROM T1 
+UNPIVOT ((SAL, CNT)
+		 FOR (DEPTNO, DNAME) IN ((D10_SAL, D10_CNT) AS (10, 'ACCOUNTING')
+		 						,(D20_SAL, D20_CNT) AS (20, 'RESEARCH')))
+ORDER BY 1, 2;
+
+SELECT A.JOB 
+	 , CASE B.LV WHEN 1 THEN 10 WHEN 2 THEN 20 END AS DEPTNO
+	 , CASE B.LV WHEN 1 THEN A.D10_SAL WHEN 2 THEN A.D20_SAL END AS SAL 
+	 , CASE B.LV WHEN 1 THEN A.D10_CNT WHEN 2 THEN A.D20_CNT END AS CNT 
+FROM T1 A
+	, (SELECT LEVEL AS LV FROM DUAL CONNECT BY LEVEL <= 2) B
+ORDER BY 1, 2;
+
+SELECT A.JOB, B.LV, A.D10_SAL, A.D20_SAL, A.D10_CNT, A.D20_CNT
+FROM T1 A
+	, (SELECT LEVEL AS LV FROM DUAL CONNECT BY LEVEL <= 2) B
+ORDER BY A.JOB, B.LV;
+
+
+-- ============================================================================
+-- ============================================================================
+-- [정규 표현식]
+SELECT REGEXP_SUBSTR('aab', 'a.b') AS C1 
+	 , REGEXP_SUBSTR('abb', 'a.b') AS C2
+	 , REGEXP_SUBSTR('acb', 'a.b') AS C3 
+	 , REGEXP_SUBSTR('adc', 'a.b') AS C4 
+FROM DUAL;
+
+SELECT REGEXP_SUBSTR('a', 'a|b') AS C1 
+	 , REGEXP_SUBSTR('b', 'a|b') AS C2
+	 , REGEXP_SUBSTR('c', 'a|b') AS C3 
+	 , REGEXP_SUBSTR('ab', 'ab|cd') AS C4 
+	 , REGEXP_SUBSTR('cd', 'ab|cd') AS C5
+	 , REGEXP_SUBSTR('bc', 'ab|cd') AS C6
+	 , REGEXP_SUBSTR('aa', 'a|aa') AS C7
+	 , REGEXP_SUBSTR('aa', 'aa|a') AS C8
+FROM DUAL;
+
+SELECT REGEXP_SUBSTR('a|b', 'a|b') AS C1
+	 , REGEXP_SUBSTR('a|b', 'a\|b') AS C2 
+FROM DUAL;
