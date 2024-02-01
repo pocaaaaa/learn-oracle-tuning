@@ -260,3 +260,65 @@ FROM (
 		ORDER BY rowid) a, emp b 
 WHERE b.rowid = a.rid;
 
+
+--SQL> create cluster c_deptno# (deptno number(2)) index;
+--
+--Cluster created.
+--
+--SQL> create index i_deptno# on cluster c_deptno#;
+--
+--Index created.
+--
+--SQL> create table cemp
+--  2  cluster c_deptno# (deptno)
+--  3  as 
+--  4  select * from sqlp.emp;
+--
+--Table created.
+--
+--SQL> create table cdept
+--  2  cluster c_deptno# (deptno)
+--  3  as
+--  4  select * from sqlp.dept;
+--
+--Table created.
+--
+--SQL> select owner, table_name from dba_tables where cluster_name = 'C_DEPTNO#';
+--
+--OWNER			       TABLE_NAME
+-------------------------------- ------------------------------
+--SYSTEM			       CDEPT
+--SYSTEM			       CEMP
+
+--SQL> break on deptno skip 1
+--SQL> select d.deptno, e.empno, e.ename
+--  2  , dbms_rowid.rowid_block_number(d.rowid) dept_block_no
+--  3  , dbms_rowid.rowid_block_number(e.rowid) emp_block_no
+--  4  from dept d, emp e
+--  5  where e.deptno = d.deptno
+--  6  order by d.deptno;
+--
+--    DEPTNO	EMPNO ENAME	 DEPT_BLOCK_NO EMP_BLOCK_NO
+------------ ---------- ---------- ------------- ------------
+--	10	 7782 CLARK		 45041	      45185
+--		 7839 KING		 45041	      45185
+--		 7934 MILLER		 45041	      45185
+--
+--	20	 7566 JONES		 45041	      45185
+--		 7902 FORD		 45041	      45185
+--		 7876 ADAMS		 45041	      45185
+--		 7369 SMITH		 45041	      45185
+--		 7788 SCOTT		 45041	      45185
+--
+--	30	 7521 WARD		 45041	      45185
+--
+--    DEPTNO	EMPNO ENAME	 DEPT_BLOCK_NO EMP_BLOCK_NO
+------------ ---------- ---------- ------------- ------------
+--	30	 7844 TURNER		 45041	      45185
+--		 7499 ALLEN		 45041	      45185
+--		 7900 JAMES		 45041	      45185
+--		 7698 BLAKE		 45041	      45185
+--		 7654 MARTIN		 45041	      45185
+--
+--
+--14 rows selected.
