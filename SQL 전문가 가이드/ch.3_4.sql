@@ -108,3 +108,28 @@ SELECT to_char(add_months(sysdate, -20*12), 'yyyymmdd') FROM dual;
 
 -- ====================================================================
 -- ====================================================================
+
+-- select 연체개월수, 연체금액
+-- from 고객별연체금액
+-- where 고객번호 = :cust_num 
+-- and to_char(sysdate, 'yyyymmdd') between 시작일자 and 종료일자;
+
+-- select a.거래일자, a.종목코드,b.종목한글명, b.종목영문명, b.상장주식수 
+-- 		, a.시가, a.종가, a.체결건수, a.체결수량, a.거래대금
+-- from 일별종목거래및시세 a, 종목이력 b
+-- where a.거래일자 between to_char(add_monthes(sysdate, -20*12), 'yyyymmdd')
+--					  and to_char(sysdate-1, 'yyyymmdd')
+-- and a.종가 = a.최고가
+-- and b.종목코드 = a.종목코드 
+-- and to_char(sysdate, 'yyyymmdd') between b.시작일자 and b.종료일자;
+
+-- select /*+ ordered use_nl(b) rowid(b) */ 
+--		  a.고객명, a.거주지역, a.주소, a.연락처, b.연체금액, b.연체개월수 
+-- from 고객 a, 고객별연체이력 b 
+-- where a.가입회사 = 'C70'
+-- and b.rowid = (select /*+ index(c 고객별연체이력_idx01) */
+-- 				  from 고객별연체이력 c 
+-- 				  where c.고객번호 = a.고객번호
+-- 				  and c.변경일자 <= a.서비스만료일 
+--				  and rownum <=1 )
+				
