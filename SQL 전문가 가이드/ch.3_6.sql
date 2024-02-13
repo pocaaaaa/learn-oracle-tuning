@@ -115,3 +115,60 @@ SELECT empno, job, mgr FROM emp WHERE deptno = 20;
 --		from 장비 p
 --		where 장비구분코드 = 'A001'
 -- )
+
+-- 병렬처리
+-- select /*+ full(o) parallel(o, 4) */
+-- 		  count(*) 주문건수, sum(주문수) 주문수량, sum(주문금액) 주문금액
+-- from 주문 o
+-- where 주문일시 between '20100101' and '20101231'
+
+-- select /*+ index_ffs(o, 주문_idx) parallel_index(o, 주문_idx, 4) */
+-- 		  count(*) 주문건수
+-- from 주문 o
+-- where 주문일시 between '20100101' and '20101231'
+
+-- select /* full(고객) parallel(고객 4) */ *
+-- from 고객 
+-- order by 고객명
+
+-- select /*+ ordered use_hash(e) full(d) noparallel(d) full(e) parallel(e 2) pq_distribute(e boardcast none) */ *
+-- from d, emp e
+-- where d.deptno = e.deptno 
+-- order by e.ename 
+
+-- 고급 SQL 활용
+-- CASE문 활용
+-- INSERT INTO 월별요금납주실적 
+-- (고객번호, 납입월, 지로, 자동이체, 신용카드, 핸드폰, 인터넷) 
+-- SELECT 고객번호, 납입월 
+-- 		, NVL(SUM(CASE WHEN 납입방법코드 = 'A' THEN 납입금액 END), 0) 지로 
+-- 		, NVL(SUM(CASE WHEN 납입방법코드 = 'B' THEN 납입금액 END), 0) 자동이 
+-- 		, NVL(SUM(CASE WHEN 납입방법코드 = 'C' THEN 납입금액 END), 0) 신용카
+-- 		, NVL(SUM(CASE WHEN 납입방법코드 = 'D' THEN 납입금액 END), 0) 핸드 
+-- 		, NVL(SUM(CASE WHEN 납입방법코드 = 'E' THEN 납입금액 END), 0) 인터넷 
+-- FROM 월별납입방법별집계
+-- WHERE 납입월 = '200903'
+-- GROUP BY 고객번호, 납입월;
+
+-- Union ALL
+-- select 상품, 연월, nvl(sum(계획수량), 0) as 계획수량, nvl(sum(실적수량), 0) as 실적수량
+-- from (
+-- 			select '계획' as 구분, 상품, 계획연월 as 연월, 판매부서, null as 판매채널 
+--				 , 계획수량, to_number(null) as 실적수량 
+-- 			from 부서별판매계획
+-- 			where 계획연월 between '200901' and '200903'
+-- 			union all
+-- 			select '실적', 상품, 판매연월 as 연월, null as 판매부서, 판매채널 
+-- 		 		 , to_number(null) as 계획수량, 판매수량 
+-- 			from 채널별판매실적 
+-- 			where 판매연월 between '200901' and '200903'
+-- ) a
+-- group by 상품, 연월; 
+
+-- select 일련번호, 측정값
+-- 		, last_value(상태코드 ignore nulls)
+--			over(order by 일련번호 rows betwwen unbounded preceding and current row) 상태코드
+-- from 장비측정
+-- order by 일련번호 
+
+-- with 구문 활용
