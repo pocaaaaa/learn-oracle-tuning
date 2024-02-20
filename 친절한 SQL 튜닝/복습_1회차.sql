@@ -212,3 +212,169 @@ FROM dual;
 -- select /*+ leading(T1, T2, T3) swap_join_inputs(T3) */ *
 -- select /*+ leading(T1, T2, T3) swap_join_inputs(T2) swap_join_inputs(T3) */ *
 -- select /*+ leading(T1, T2, T3) no_swap_join_inputs(T3) */ *
+
+-- 서브쿼리 : 스칼라 서브쿼리, 인라인 뷰, 중첩된 서브쿼
+-- select c고객번호, c.고객명, t.평균거래, t.최소거래, t.최대거래 
+--		,(select 고객분류명 from 고객분류 where 고객분류코드 = c.고객분류코)
+-- from 고객 c 
+-- 	  , (select 고객번호, avg(거래금액) 평균거래, min(거래금래) 최소거래, max(거래금액) 최대거래 
+--		 from 거래 
+--		 where 거래일시 >= trunc(sysdate, 'mm')
+--		 group by 고객번호) t 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and t.고객번호 = c.고객번호 
+-- and exists (select 'x'
+--			   from 고객변경이력 h
+--			   where h.고객번호 = c.고객번호
+--			   and h.변경사유코드 = 'ZCH'
+--			   and c.최종변경일시 between h.시작일시 and h.종료일시) 
+
+-- no_unnest : 서크뤄리 필터 방식으로 처리. 항상 메인쿼리가 드라이빙 집합. 
+-- select c.고객번호, c.고객명
+-- from 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and exists (
+-- 		select /*+ no_unnest */ 'x'
+-- 		from 거래 
+-- 		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(sysdate, 'mm)) 
+
+-- unnest : 서브쿼리 flattening 
+-- nl_sj : 조인에 성공하는 순간 진행을 멈추고 메인 쿼리의 다음 로우를 계속 처리함. 나머지는 nl조인과 동일함. 
+-- select c.고객번호, c.고객명
+-- from 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and exists (
+-- 		select /*+ unnest nl_sj */ 'x'
+-- 		from 거래 
+-- 		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(sysdate, 'mm)) 
+
+-- select /*+ leading(거래@subq) use_nl(c) */ c.고객번호, c.고객명
+-- from 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and exists (
+-- 		select /*+ qb_name(subq) unnest */ 'x'
+-- 		from 거래 
+-- 		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(sysdate, 'mm)) 
+
+-- 아래와 같이 변
+-- select /*+ no_merge(t) leading(t) use_nl(c) */ c.고객번호, c.고객명 
+-- from (select distinct 고객번호 
+--		 from 거래 
+--  	 where 거래일시 >= trunc(sysdate, 'mm')) t, 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and c.고객번호 = t.고객번호
+
+-- select c.고객번호, c.고객명
+-- from 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and exists (
+-- 		select /*+ unnest hash_sj */ 'x'
+-- 		from 거래 
+-- 		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(sysdate, 'mm)) 
+
+-- rownum을 사용하면 unnest가 방지됨. 
+
+-- pushing 서브쿼리 : 서브쿼리 필터링을 가능한 한 앞 단계에서 처리하도록 강제하는 기능 (push_subq / no_push_subq)
+-- unnesting 되지 않은 서브쿼리에만 작동 => push_subq 힌트는 항상 no_unnest 힌트와 같이 기술. 
+-- select /*+ leading(p) use_nl(t) */ count(distinct p.상품코), sum(t.주문금액) 
+-- from 상품 p, 주문 t
+-- where p.상품번호 = t.상품번호
+-- and p.등록일시 >= trunc(add_months(sysdate, -3), 'mm')
+-- and t.주문일시 >= trunc(sysdate - 7)
+-- and exists (select /*+ no_unnest push_subq */ 'x' from 상품분류 
+--		where 상품분류코드 = p.상품분류코드 
+--		and 상위분류코드 = 'AK')
+
+-- Pushing 서브쿼리와 반대로 서브쿼리 필터링을 가능한 나중에 처리하려면 
+-- no_unnest 와 no_push_subq 를 같이 사용. 
+
+-- 뷰머징 : 메인 쿼리와 머징. 뷰머징 방지는 no_merge 
+-- select c.고객번호, c.고객명, t.평균거래, t.최소거래, t.최대거래
+-- from 고객 c 
+-- 		, (select /*+ merge */ 고객번호, avg(거래금액) 평균거래 
+--				, min(거래금액) 최소거래, max(거래금액) 최대거래 
+-- 		   from 거래 
+-- 		   where 거래일시 >= trunc(sysdate, 'mm')
+-- 		   group by 고객번호) t
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and t.고객번호 = c.고객번호 
+
+-- 조인조건 pushdown : 조인 조건절 값을 건건이 뷰 안으로 밀어 넣는 기능. 
+-- 부분범위처리 가능.
+-- VIEW PUSHED PREDICATE 
+-- select c.고객번호, c.고객명, t.평균거래, t.최소거래, t.최대거래
+-- from 고객 c 
+-- 		, (select /*+ no_merge push_pred */ 고객번호, avg(거래금액) 평균거래 
+--				, min(거래금액) 최소거래, max(거래금액) 최대거래 
+-- 		   from 거래 
+-- 		   where 거래일시 >= trunc(sysdate, 'mm')
+-- 		   group by 고객번호) t
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and t.고객번호 = c.고객번호 
+
+-- select c.고객번호, c.고객명, t.평균거래, t.최소거래, t.최대거래
+-- from 고객 c 
+-- 		, (select /*+ no_merge push_pred */ 고객번호, avg(거래금액) 평균거래 
+--				, min(거래금액) 최소거래, max(거래금액) 최대거래 
+-- 		   from 거래 
+-- 		   where 거래일시 >= trunc(sysdate, 'mm')
+--		   and 고객번호 = c.고객번호 -- 오류발생 (ORA-00904)
+-- 		   group by 고객번호) t
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+
+-- select * from 사원 e
+--			LATERAL (select * from 조직 where 조직코드 = e.조직코드)
+
+-- select * from 사원 e
+--			OUTER APPLY (select * from 조직 where 조직코드 = e.조직코드) 
+
+-- select * from 사원 e
+--			CROSS APPLY (select * from 조직 where 조직코드 = e.조직코드)
+
+-- select empno, ename, sal, hiredate 
+--		, (select d.dname from dept d where d.deptno = e.deptno) as dname 
+-- from emp e 
+-- where sal >= 2000
+
+-- 서브쿼리 캐싱 효과
+-- SELECT empno, ename, sal, hiredate 
+-- 		, (select GET_DNAME(e.deptno) from dual) dname 
+-- from emp e
+-- where sal >= 2000 
+
+-- select 고객번호, 고객명
+--		, to_number(substr(거래금액, 1, 10)) 평균거래금액
+--		, to_number(substr(거래금액, 11, 20)) 최소거래금액
+--		, to_number(substr(거래금액, 21)) 최대거래금액 
+-- from (
+--	select c.고객번호, c.고객명
+-- 		, (select lpad(avg(거래금액), 10) || lpad(min(거래금액), 10) || max(거래금액)
+-- 		   from 거래 
+--		   where 거래일시 >= trunc(sysdate, 'mm')
+--		   and 고객번호 = c.고객번호) 거래금액
+-- from 고객 c 
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- ) 
+
+-- select c.고객번호, c.고객명, t.평균거래, t.최소거래, t.최대거래
+-- from 고객 c 
+-- 		, (select /*+ no_merge push_pred */ 
+--		   		  고객번호, avg(거래금액) 평균거래, min(거래금액) 최소거래, max(거래금액) 최대거래 
+--		   from 거래 
+-- 		   where 거래일시 >= trunc(sysdate, 'mm')
+--		   group by 고객번호) t
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm')
+-- and t.고객번호 (+)= c.고객번호 
+
+-- 스칼라 서브쿼리 UNNESTING
+-- select c.고객번호, c.고객명
+--		, (select /*+ unnest */ round(avg(거래금액), 2) 평균거래금액 
+--		   from 거래 
+--		   where 거래일시 >= trunc(sysdate, 'mm')
+--		   and 고객번호 = c.고객번호)
+-- from 고객 c
+-- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm') 
