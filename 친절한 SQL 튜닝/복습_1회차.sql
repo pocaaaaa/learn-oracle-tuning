@@ -124,3 +124,91 @@ SELECT * FROM emp WHERE empno > 0 ORDER BY empno DESC;
 --		, dname varchar2(14) not null
 --		, loc varchar2(13) )
 -- cluster c_dept#(deptno); 
+
+-- select * from 거래 
+-- where :cust_id is null
+-- and 거래일자 between :dt1 and :dt2
+-- union all
+-- select * from 거래 
+-- where :cust_id is not null
+-- and 고객ID = :cust_id 
+-- and 거래일자 between :dt1 and dt2 
+
+-- NULL 허용 컬럼에 사용할 수 없음. (nvl, decode)
+-- select * from 거래 
+-- where 고객ID = nvl(:cust_id, 고객ID)
+-- and 거래일자 between :dt1 and :dt2
+
+-- select * from 거래 
+-- where 고객ID = decode(:cust_id, null, 고객ID, :cust_id)
+-- and 거래일자 between :dt1 and :dt2
+
+SELECT * FROM dual WHERE NULL = NULL;
+
+SELECT * FROM dual WHERE NULL IS NULL;
+
+SELECT 	trunc(sysdate - 3)
+		, to_char(trunc(sysdate - 3), 'YYYYMMDD')
+		, to_date('2024-02-20', 'YYYY-MM-DD')
+		, to_char(sysdate-10, 'YYYYMMDD') 
+		, to_char(add_months(sysdate, -12), 'yyyy-mm-dd')
+		, to_char(add_months(sysdate, -12), 'YYYY-MM-DD')
+FROM dual; 
+
+
+-- 4장 
+-- select /*+ ordered use_nl(c) */ 
+-- 		  e.사원명, c.고객명, c.전화번호
+-- from 사원 e, 고객 c 
+-- where e.입사일자 >= '19960101'
+-- and c.관리사원번호 = e.사원번호;
+
+-- select /*+ ordered use_nl(B) use_nl(C) use_hash(D) */ *
+-- from A, B, C, D
+-- where ... ... 
+
+-- select /*+ leading(C, A, D, B) use_nl(A) use_nl(D) use_hash(B) */ *
+-- from A, B, C, D 
+-- where ... ... 
+
+-- select /*+ use_nl(A, B, C, D) */ *
+-- from A, B, C, D 
+-- where ... ...
+
+-- 소트 머지 조인 (Sort Merge Join)
+-- select /*+ ordered use_merge(c) */
+--		  e.사원번호, e.사원명, e.입사일자
+--		, c.고객번호, c.고객명, c.전화번호, c.최종주문금액
+-- from 사원 e, 고객 c 
+-- where c.관리사원번호 = e.사원번호 
+-- and e.입사일자 >= '19960101'
+-- and e.부서코드 = 'Z123'
+-- and c.최종주문금액 >= 20000 
+
+-- select /*+ ordered use_hash(c) */
+--		  e.사원번호, e.사원명, e.입사일자
+--		, c.고객번호, c.고객명, c.전화번호, c.최종주문금액
+-- from 사원 e, 고객 c 
+-- where c.관리사원번호 = e.사원번호 
+-- and e.입사일자 >= '19960101'
+-- and e.부서코드 = 'Z123'
+-- and c.최종주문금액 >= 20000 
+
+-- select /*+ leading(e) use_hash(c) swap_join_inputs(c) */
+--		  e.사원번호, e.사원명, e.입사일자
+--		, c.고객번호, c.고객명, c.전화번호, c.최종주문금액
+-- from 사원 e, 고객 c 
+-- where c.관리사원번호 = e.사원번호 
+-- and e.입사일자 >= '19960101'
+-- and e.부서코드 = 'Z123'
+-- and c.최종주문금액 >= 20000 
+
+-- select /*+ leading(T1, T2, T3) use_hash(T2) use_hash(T3) */ *
+-- from T1, T2, T3
+-- where T1.key = T2.key
+-- and T2.key = T3.key 
+
+-- select /*+ leading(T1, T2, T3) swap_join_inputs(T2) */ *
+-- select /*+ leading(T1, T2, T3) swap_join_inputs(T3) */ *
+-- select /*+ leading(T1, T2, T3) swap_join_inputs(T2) swap_join_inputs(T3) */ *
+-- select /*+ leading(T1, T2, T3) no_swap_join_inputs(T3) */ *
