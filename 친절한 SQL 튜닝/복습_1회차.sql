@@ -378,3 +378,209 @@ FROM dual;
 --		   and 고객번호 = c.고객번호)
 -- from 고객 c
 -- where c.가입일시 >= trunc(add_months(sysdate, -1), 'mm') 
+
+
+-- 5장 소트튜닝 
+-- select distinct p.상품번호, p.상품명, p.상품가격, ... 
+-- from 상품 p, 계약 c 
+-- where p.상품유형코드 = :pclscd 
+-- and c.상품번호 = p.상품번호 
+-- and c.계약일자 between :dt1 and :dt2 
+-- and c.계약구분코드 = :ctpcd 
+
+-- select p.상품번호, p.상품명, p.상품가격, ...
+-- from 상품 p 
+-- where p.상품유형코드 = :pclscd 
+-- and exists (select 'x' from 계약 c 
+--			   where c.상품번호 = p.상품번호
+--			   and c.계약일자 between :dt1 and :dt2 
+--			   and c.계약구분코드 = :ctpcd)
+
+-- <튜닝전> 
+-- select st.상황접수번호, st.관제일련번호, st.상황코드, st.관제일시
+-- from 관제진행상황 st 
+-- where 상황코드 = '0001' -- 신고접수 
+-- and 관제일시 between :v_timefrom || '000000' and :v_timeto || '235959'
+-- minus 
+-- select st.상황접수번호, st.관제일련번호, st.상황코드, st.관제일시
+-- from 관제진행상황 st, 구조활동 rpt 
+-- where 상황코드 = '0001'
+-- and 관제일시 between :v_timefrom || '000000' and :v_timeto || '235959'
+-- and rpt.출동센터ID = :v_cntr_id 
+-- and st.상황접수번호 = rpt.상황접수번호 
+-- order by 상황접수번호, 관제일시 
+
+-- <튜닝후>
+-- select st.상황접수번호, st.관제일련번호, st.상황코드, st.관제일시
+-- from 관제진행상황 st 
+-- where 상황코드 = '0001' -- 신고접수 
+-- and 관제일시 between :v_timefrom || '000000' and :v_timeto || '235959'
+-- and not exists (select 'x' from 구조활동 
+--				   where 출동센터ID = :v_cntr_id
+--				   and 상황접수번호 = st.상황접수번호)
+-- order by st.상황접수번호, st.관제일시 
+
+-- top N
+-- <MsSQL>
+-- select top 10 거래일시, 체결건수, 체결수량, 거래대금
+-- from 종목거래
+-- where 종목코드 = 'KR123456'
+-- and 거래일시 >= '20180304'
+-- order by 거래일시
+
+-- <IBM DB2>
+-- select 거래일시, 체결건수, 체결수량, 거래대금
+-- from 종목거래 
+-- where 종목코드 = 'KR123456'
+-- and 거래일시 >= '20180304'
+-- order by 거래일시
+-- fetch first 10 rows only; 
+
+-- <Oracle>
+-- select * from (
+--	select 거래일시, 체결건수, 체결수량, 거래대금 
+--  from 종목거래
+--	where 종목코드 = 'KR123456'
+--	and 거래일시 >='20180304'
+--	order by 거래일시
+-- )
+-- where rownum <= 10 
+
+-- 페이징처리
+-- select *
+-- from (
+-- 	select rownum no, a.* 
+--	from 
+--		(
+--			/* SQL Body */
+--		) a
+--	where rownum <= (:page * 10)
+--	)
+-- where no >= (:page-1) * 10 + 1
+
+-- select * 
+-- from (
+--	select rownum no, a.*
+--	from 
+--		(
+--			select 거래일시, 체결건수, 체결수량, 거래대금
+--			from 종목거래
+--			where 종목코드 = 'KR123456'
+--			and 거래일시 >= '20180304'
+--			order by 거래일시
+--		) a
+-- 	where rownum <= (:page * 10)
+--	)
+-- where no >= (:page-1) * 10 + 1
+
+CREATE INDEX emp_x1 ON emp(sal);
+
+explain plan FOR
+SELECT max(sal) FROM emp; 
+
+SELECT * FROM table(dbms_xplan.display);
+
+CREATE INDEX emp_x2 ON emp(deptno, mgr, sal);
+CREATE INDEX emp_x3 ON emp(deptno, sal, mgr);
+
+explain plan FOR 
+SELECT /*+ index(emp emp_x3) */ max(sal) FROM emp WHERE deptno = 30 AND mgr = 7698;
+
+CREATE INDEX emp_x4 ON emp(deptno, sal);
+
+explain plan FOR
+SELECT * 
+FROM (
+	SELECT sal 
+	FROM emp 
+	WHERE deptno = 30 
+	AND mgr = 7968
+	ORDER BY sal desc
+)
+WHERE rownum <= 1;
+
+-- select 장비번호, 장비명 
+-- 		, substr(최종이력, 1, 8) 최종변경일자
+--		, to_number(substr(최종이력, 9, 4)) 최종변경순번
+--		, substr(최종이력, 13) 최종상태코드
+-- from (
+--		select 장비번호, 장비명
+--			, (select /*+ index_desc(x 상태변경이력_PX) */
+--					  변경일자 || LPAD(변경순번, 4) || 상태코드 
+--			   from 상태변경이력 x 
+--			   where 장비번호 = p.장비번호
+--			   and rownum <= 1 ) 최종이력 
+-- 		from 장비 p
+--		where 장비구분코드 = 'A001'
+-- ) 
+
+-- Predicate Pushing 쿼리 변환 작동 
+-- select 장비번호, 장비명 
+-- 		, substr(최종이력, 1, 8) 최종변경일자
+--		, to_number(substr(최종이력, 9, 4)) 최종변경순번
+--		, substr(최종이력, 13) 최종상태코드
+-- from (
+--		select 장비번호, 장비명
+--			, (select 변경일자 || LPAD(변경순번, 4) || 상태코드 
+--			   from (select 장비번호, 변경일자, 변경순번, 상태코드
+--					 from 상태변경이력
+--					 order by 변경일자 desc, 변경순번 desc) 
+--			   where 장비번호 = p.장비번호
+--			   and rownum <= 1 ) 최종이력 
+-- 		from 장비 p
+--		where 장비구분코드 = 'A001'
+-- ) 
+
+-- select 장비번호, 장비명 
+-- 		, substr(최종이력, 1, 8) 최종변경일자
+--		, to_number(substr(최종이력, 9, 4)) 최종변경순번
+--		, substr(최종이력, 13) 최종상태코드
+-- from (
+--		select 장비번호, 장비명
+--			, (select 변경일자 || LPAD(변경순번, 4) || 상태코드 
+--			   from (select 장비번호, 변경일자, 변경순번, 상태코드
+--					 from 상태변경이력
+--					 where 장비번호 = p.장비번
+--					 order by 변경일자 desc, 변경순번 desc) 
+--			   where rownum <= 1 ) 최종이력 
+-- 		from 장비 p
+--		where 장비구분코드 = 'A001'
+-- ) 
+
+-- select P.장비번호, P.장비명 
+-- 		, H.변경일자 AS 최종변경일자
+--		, H.변경순번 AS 최종변경순번 
+--		, H.상태코드 AS 최종상태코드 
+-- from 장비 P 
+-- 		, (select 장비번호, 변경일자, 변경순번, 상태코드
+--				, row_number() over(partition by 장비번호 order by 변경일자 desc, 변경순번 desc) RNUM
+--		   from 상태변경이력 ) H
+-- where H.장비번호 = P.장비번호 
+-- and H.RNUM = 1; 
+
+-- select P.장비번호, P.장비명 
+-- 		, H.변경일자 AS 최종변경일자
+--		, H.변경순번 AS 최종변경순번 
+--		, H.상태코드 AS 최종상태코드 
+-- from 장비 P 
+-- 		, (select 장비번호
+--				, max(변경일자) 변경일자 
+--				, max(변경순번) KEEP (DENSE_RANK LAST ORDER BY 변경일자, 변경순번) 변경순번
+--				, max(상태코드) KEEP (DENSE_RANK LAST ORDER BY 변경일자, 변경순번) 상태코
+--		   from 상태변경이력
+--		   group by 장비번 ) H
+-- where H.장비번호 = P.장비번호;
+
+-- select P.장비번호, P.장비명 
+--		, H.상태코드, H.유효시작일자, H.유효종료일자, H.변경순번 
+-- from 장비 P, 상태변경이력 H 
+-- where P.장비구분코드 = 'A001'
+-- and H.장비번호 = P.장비번호 
+-- and H.유효종료일자 = '99991231'
+
+-- select P.장비번호, P.장비명 
+--		, H.상태코드, H.유효시작일자, H.유효종료일자, H.변경순번 
+-- from 장비 P, 상태변경이력 H 
+-- where P.장비구분코드 = 'A001'
+-- and H.장비번호 = P.장비번호 
+-- and :base_dt between H.유효시작일자 and H.유효종료일자 
