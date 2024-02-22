@@ -584,3 +584,147 @@ WHERE rownum <= 1;
 -- where P.장비구분코드 = 'A001'
 -- and H.장비번호 = P.장비번호 
 -- and :base_dt between H.유효시작일자 and H.유효종료일자 
+
+
+-- 6장 
+-- Redo Log 
+--  1) Database Recovery 
+--  2) Cache Recovery (Instance Recovery 시 roll forward 단계) 
+--  3) Fast Commit 
+
+-- Undo Log 
+--  1) Transcation Rollback
+--  2) Transcation Recovery (Instance Recovery 시 rollback 단계)
+--  3) Read Consistency 
+
+-- insert /*+ append */ into target 
+-- select * from source;
+
+-- 수정가능 조인 뷰 
+-- update 고객 c 
+-- set (최종거래일시, 최근거래횟수, 최근거래금액) = 
+--	   (select max(거래일시), count(*), sum(거래금액) 
+--		from 거래
+--		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(add_months(sysdate, -1)))
+-- where exists (select 'x' from 거래
+--				 where 고객번호 = c.고객번호 
+--				 and 거래일시 >= trunc(add_months(sysdate, -1))) 
+
+SELECT trunc(add_months(sysdate, -1))) FROM dual;
+
+-- update 고객 c 
+-- set (최종거래일시, 최근거래횟수, 최근거래금액) = 
+--	   (select max(거래일시), count(*), sum(거래금액) 
+--		from 거래
+--		where 고객번호 = c.고객번호
+--		and 거래일시 >= trunc(add_months(sysdate, -1)))
+-- where exists (select /*+ unnest hash_sj */ 'x' from 거래
+--				 where 고객번호 = c.고객번호 
+--				 and 거래일시 >= trunc(add_months(sysdate, -1))) 
+
+-- update 
+-- (select /*+ ordered use_hash(c) no_merge(t) */ 
+--		   c.최종거래일시, c.최근거래횟수, c.최근거래금액 
+--		 , t.거래일시, t.거래횟수, t.거래금액 
+--  from (select 고객번호
+--		 	  , max(거래일시) 거래일시, count(*) 거래횟수, sum(거래금액) 거래금액 
+--		 from 거래 
+--		 where 거래일시 >= trunc(add_months(sysdate, -1))
+--		 group by 고객번호) t 
+-- 		 , 고객 c 
+--  where c.고객번호 = t.고객번호 
+-- ) 
+-- set 최종거래일시 = 거래일시 
+-- 	 , 최근거래횟수 = 거래횟수
+--	 , 최근거래금액 = 거래금액 
+
+-- merge into customer t using customer_delta s on (t.cust_id = s.cust_id)
+-- when matched then update
+-- set t.cust_no = s.cust_nm, t.email = s.email, ...; 
+
+-- merge into customer t using customer_delta s on (t.cust_id = s.cust_id)
+-- when not matched then insert 
+-- (cust_id, cust_nm, email ...) values 
+-- (s.cust_id, s.cust_nm, s.email ...)
+
+-- merge inot dept d
+-- using(select deptno, round(avg(sal), 2) avg_sal from emp group by deptno) e
+-- on (d.deptno = e.deptno)
+-- when matched then update set d.avg_sal = e.avg_sal;
+
+-- merge into customer t 
+-- using customer_delta s
+-- on (t.cust_id = s.cust_id)
+-- when matched then update 
+--	set t.cust_nm = s.cust_nm, t.email = s.email, ...
+--	where reg_dt >= to_date('20000101, 'yyyymmdd)
+-- when not matched then insert 
+--	(cust_id, cust_nm, email ...) values 
+--	(s.cust_id, s.cust_nm, s.email ...)
+-- 	where reg_dt < trunc(sysdate);
+
+-- merge into customer t using customer_delta s on (t.cust_id = s.cust_id)
+-- when matched then 
+--	update set t.cust_nm = s.cust_nm, t.email = s.email ... 
+--	delete where t.withdraw_dt is not null -- 탈퇴일시가 null이 아닌 레코드 삭제
+-- when not matched then insert 
+--	(cust_id, cust_nm, email ...) values 
+--	(s.cust_id, s.cust_nm, s.email ...);
+
+-- insert /*+ parallel(c 4) */ into 고객 c
+-- select /*+ full(o) parallel(o 4) */ * from 외부가입고객 o; 
+
+-- update /*+ full(c) parallel(c 4) */ 고객 c set 고객상태코드 = 'WD'
+-- where 최종거래일시 < '20100101';
+
+-- delete /*+ full(c) parallel(c 4) */ from 고객 c 
+-- where 탈퇴일시 < '20100101';
+
+-- insert /*+ append parallel(c 4) */ into 고객 c 
+-- select /*+ full(o) parallel(o 4) */ * from 외부가입고객 o;
+
+-- insert /*+ enable_parallel_dml parallel(c 4) */ into 고객 c 
+-- select /*+ full(o) parallel(o 4) */ * from 외부가입고객 o; 
+
+-- update /*+ enable_parallel_dml full(c) parallel(c 4) */ 고객 c 
+-- set 고객상태코드 = 'WD'
+-- where 최종거래일시 < '20100101'; 
+
+-- delete /*+ enable_parallel_dml full(c) parallel(c 4) */ from 고개 c 
+-- where 탈퇴일시 < '20100101';
+
+-- 파티션 (Range, 해시, 리스트)
+-- create table 주문 (주문번호 number, 주문일자 varchar2(8), 고객 ID varchar2(5)
+--					, 배송일자 varchar2(8), 주문금액 number, ...) 
+-- partition by range(주문일자) (
+--	  partition P2017_Q1 values less than ('20170401')
+--	, partition P2017_Q1 values less than ('20170701')
+--	, partition P2017_Q1 values less than ('20171001')
+--	, partition P2017_Q1 values less than ('20180101')
+--	, partition P2017_Q1 values less than ('20180401')
+--	, partition P2017_Q1 values less than (MAXVALUE) -> 주문일자 >= '20180401'
+-- );
+
+-- create table 고객 (고객ID varchar2(5), 고객명 varchar2(10), ...) 
+-- partition by hash(고객ID) partitions 4; 
+
+-- create table 인터넷매물 (물건코드 varchar2(5), 지역분류 varchar2(4), ...) 
+-- partition by list(지역분류) 
+--	  partition P_지역1 values ('서울')
+--	, partition P_지역2 values ('경기', '인천')
+--	, partition P_지역3 values ('부산', '대구', '대전', '광주')
+--	, partition P_지역4 values (DEFAULT) -> 기타 지역 
+-- );
+
+-- create index 주문_x01 on 주문 (주문일자, 주문금액) LOCAL;
+-- create index 주문_x02 on 주문 (고객ID, 주문일자) LOCAL; 
+
+-- create index 주문_x03 on 주문 (주문금액, 주문일자) GLOBAL
+-- partition by range(주문금액) 
+--	partition P_01 values less than (100000)
+--	partition P_MX values less than (MAXVALUE) -> 주문금액 >= 100000
+-- ); 
+
+-- create index 주문_x04 on 주문 (고객ID, 배송일자); 
+
