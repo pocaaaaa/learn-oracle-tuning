@@ -164,3 +164,81 @@ SELECT * FROM table(dbms_xplan.display_cursor(NULL, NULL, 'ALLSTATS LAST'));
 -- 1 => 1
 -- wait 
 
+
+-- 3-3장. 인덱스튜닝 
+-- Range Scan (SQL Server 에서는 Index Seek)
+CREATE INDEX emp_deptno_idx ON emp(deptno);
+explain plan FOR 
+SELECT /*+ index(emp emp_deptno_idx) */ * FROM emp WHERE deptno = 20;
+SELECT * FROM table(dbms_xplan.display);
+
+-- Index Full Scan (SQL Server 에서는 Index Scan)
+CREATE INDEX emp_idx ON emp (ename, sal);
+explain plan FOR 
+SELECT /*+ index(emp emp_idx) */ * FROM emp WHERE sal > 2000 ORDER BY ename;
+SELECT * FROM table(dbms_xplan.display);
+
+SELECT /*+ first_rows */ * FROM emp 
+WHERE sal > 1000 
+ORDER BY ename;
+
+-- Index Unique Scan (SQL Server 에서는 Index Seek)
+CREATE UNIQUE INDEX pk_emp ON emp(empno);
+ALTER TABLE emp ADD 
+CONSTRAINT pk_emp PRIMARY key(empno) USING INDEX pk_emp; 
+
+explain plan FOR 
+SELECT /*+ index(emp EMP_EMPNO_PK) */ empno, ename 
+FROM emp 
+WHERE empno = 7788;
+
+-- Index Skip Scan 
+explain plan for
+SELECT /* index_ss(emp emp_idx) */ * 
+FROM emp 
+WHERE sal BETWEEN 2000 AND 4000;
+
+-- Index Fast Full Scan (인덱스 세그먼트 전체를 Multiblock Read 방식으로 스캔) 
+
+-- Index Range Scan Descending 
+explain plan for
+SELECT * FROM emp 
+WHERE empno IS NOT NULL 
+ORDER BY empno DESC;
+
+SELECT * FROM table(dbms_xplan.display);
+
+-- max
+CREATE INDEX emp_x02 ON emp(deptno, sal);
+explain plan for
+SELECT deptno, dname, loc 
+	 , (SELECT max(sal) FROM emp WHERE deptno = d.deptno) 
+FROM dept d;
+
+-- 클러스터 인덱스 
+-- create cluster c_deptno# (deptno number(2)) index;
+-- create index i_deptno# on cluster c_deptno#;
+-- create table emp 
+-- cluster c_deptno# (deptno)
+-- as 
+-- select * from scott.emp; 
+
+-- create clustered index 영업실적_idx on 영업실적 (사번, 일자);
+-- create table 영업실적 (사번 varchar2(5), 일자 varcahr2(8), ...
+-- , constraint 영업실적_PK primary key (사번, 일자)) organization index; 
+
+-- select * from 업체 where substr(업체명, 1, 2) = '대한'
+-- select * from 업체 where 업체명 like '대한%'
+
+-- select * from 사원 where 월급여 * 12 = 36000000
+-- select * from 사원 where 월급여 = 36000000 / 12 
+
+-- select * from 주문 where to_char(일시, 'yyyymmdd) = :dt 
+-- select * from 주문 where 일시 >= to_date(:dt, 'yyyymmdd) and 일시 < to_date(:dt, 'yyyymmdd) + 1
+
+-- select * from 고객 where 연령 || 직업 = '30공무원' 
+-- select * from 고객 where 연령 = 30 and 직업 = '공무원'
+
+-- select * from 회원사지점 where 회원번호 || 지점번호 = :str 
+-- select * from 회원사지점 where 회원번호 = substr(:str, 1, 2) and 지점번호 = substr(:str, 3, 4)
+
