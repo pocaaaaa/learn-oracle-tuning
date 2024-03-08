@@ -503,7 +503,7 @@ SELECT rowid, emp.* FROM emp;
 -- 2. 비용기반 옵티마이저
 --  1) 오브젝트 통계 : 레코드 개수, 블록 개수, 평균 행 길이, 컬럼 값의 수, 칼럼 값의 분포, 인덱스 높이, 클러스터링 팩터
 --  2) 시스템 통계정보 : CPU 속도, 디스크 I/O 속도 
-
+ 
 -- 전체 처리속도 최적화 : 시스템 리소스(I/O, CPU, 메모리 등)를 가장 적게 사용하는 실행계획을 선택. 
 
 -- Oracle 옵티마이저 모드 변경 
@@ -670,6 +670,293 @@ AND a.deptno = 30;
 
 -- 2. 조건절(Predicate) Pullup
 --   : 쿼리 블록 안에 있는 조건절을 쿼리 블록 밖으로 내오는 것을 말하며, 그것을 다시 다른 쿼리 블록에 Pushdown 하는 데 사용
+
+explain plan for
+SELECT * FROM 
+   (SELECT deptno, avg(sal) FROM emp WHERE deptno = 10 GROUP BY deptno) e1,
+   (SELECT deptno, min(sal), max(sal) FROM emp GROUP BY deptno) e2
+WHERE e1.deptno = e2.deptno;
+
+SELECT * FROM table(dbms_xplan.display);
+
+-- 쿼리변환 
+SELECT * FROM 
+   (SELECT deptno, avg(sal) FROM emp WHERE deptno = 10 GROUP BY deptno) e1,
+   (SELECT deptno, min(sal), max(sal) FROM emp WHERE deptno = 10 GROUP BY deptno) e2
+WHERE e1.deptno = e2.deptno;
+
+
 -- 3. 조인 조건(Join Predicate) Pushdown 
 --   : NL 조인 수행 중에 드라이빙 테이블에서 읽은 값을 건건이 Inner 쪽 (=right side) 뷰 쿼리 블록 안으로 밀어 넣는 것을 말함. 
 
+-- dept 테이블로부터 넘겨진 deptno에 대해서만 group by를 수행 
+-- 부분범위처리가 필요한 상황에서 유용 
+SELECT d.deptno, d.dname, e.avg_sal
+FROM dept d
+   , (SELECT /*+ no_merge push_pred */ deptno, avg(sal) avg_sal FROM emp GROUP BY deptno) e
+WHERE e.deptno (+) = d.deptno;
+
+SELECT d.deptno, d.dname 
+   , (SELECT avg(sal) FROM emp WHERE deptno = d.deptno)
+FROM dept d;
+
+-- 11g 이하 버전에서 여러 개의 집계함수를 사용할때 사용하는 방식 (11g부터 조인 조건 Pushdown 기능을 제공)
+-- substr("문자열", "시작위치", "길이") => 시작위치는 1부터 
+SELECT deptno, dname 
+    , to_number(substr(sal, 1, 7)) avg_sal 
+    , to_number(substr(sal, 8, 7)) avg_sal 
+    , to_number(substr(sal, 15)) max_sal 
+FROM (
+   SELECT /*+ no_merge */ d.deptno, d.dname 
+       , (SELECT lpad(avg(sal), 7) || lpad(min(sal), 7) || max(sal)
+          FROM emp WHERE deptno = d.deptno) sal
+   FROM dept d
+)
+
+-- 조건절 이행 
+--  : '(A = B) 이고 (B = C) 이면 (A = C) 이다' 와 같은 추론을 통해 새로운 조건절을 내부적으로 생성해 주는 쿼리 변환 
+--    '(A > B) 이고 (B > C) 이면 (A > C) 이다' 와 같은 추론도 가능 
+
+explain plan for
+SELECT * FROM dept d, emp e 
+WHERE e.job = 'MANAGER'
+AND e.deptno = 10 
+AND d.deptno = e.deptno;
+
+SELECT * FROM table(dbms_xplan.display);
+
+-- 'e.deptno = 10' 이고 'e.deptno = d.deptno' 이므로 'd.deptno = 10' 으로 추론 
+SELECT * FROM dept d, emp e 
+WHERE e.job = 'MANAGER'
+AND e.deptno = 10 
+AND d.deptno = 10;
+
+-- 해시 조인 또는 소트 머지 조인을 수행하기 전 emp와 dept 테이블에 각각 필터링을 적용함으로써 조인되는 데이터량을 줄임. 
+
+-- 불필요한 조인 제거 (조인제거 or 테이블제거)
+SELECT e.empno, e.ename, e.deptno, e.sal, e.hiredate 
+FROM dept d, emp e 
+WHERE d.deptno = e.deptno;
+
+SELECT e.empno, e.ename, e.deptno, e.sal, e.hiredate 
+FROM dept d, emp e 
+WHERE d.deptno (+) = e.deptno; -- OUTER JOIN 
+
+-- Or 조건을 Union으로 변환 
+SELECT * FROM emp 
+WHERE job = 'CLERK' OR deptno = 20;
+
+-- job과 deptno 각각 생성된 인덱스 사용
+-- LNNVL()
+--  1) 컬럼이 Null 인 경우 = true 
+--  2) 함수 내부 조건이 False인 경우 = true 
+SELECT * FROM emp 
+WHERE job = 'CLERK'
+UNION ALL 
+SELECT * FROM emp 
+WHERE deptno = 20
+AND lNNVL(job='CLERK') -- job IS NULL or job != 'CLERK'
+
+-- OR-Expansion : 옵티마이저가 자동으로 쿼리 변환 (or -> union all)
+-- CONCATENATION 오퍼레이션 발생
+
+SELECT /*+ use_concat */ * FROM emp 
+WHERE job = 'CLERK' OR deptno =20;
+
+SELECT /*+ no_expand */ * FROM emp 
+WHERE job = 'CLERK' OR deptno =20;
+
+-- 기타 쿼리 변환 
+SELECT job, mgr FROM emp 
+MINUS 
+SELECT job, mgr FROM emp 
+WHERE deptno = 10;
+
+-- sys_op_map_nonnull : 양쪽 다 NULL 값을 가진 값을 비교 할때 사용. 
+SELECT DISTINCT job, mgr FROM emp e 
+WHERE NOT EXISTS (
+   SELECT 'x' FROM emp 
+   WHERE deptno = 10 
+   AND sys_op_map_nonnull(job) = sys_op_map_nonnull(e.job)
+   AND sys_op_map_nonnull(mgr) = sys_op_map_nonnull(e.mgr)
+)
+
+SELECT * FROM emp 
+WHERE sal BETWEEN 2000 AND 1000;
+
+
+-- 3-6장. 고급튜닝 
+-- 1. Sort Aggregate : 전체 로우를 대상으로 집계를 수행할 때 나타난다. 
+SELECT sum(sal), max(sal), min(sal) FROM emp;
+
+-- 2. Sort Order by : 정렬된 결과 집합을 얻고자 할 때 나타난다. 
+SELECT * FROM emp ORDER BY sal DESC;
+
+-- 3. Sort Group By : Sorting 알고리즘을 사용해 그룹별 집계를 수행할 떄 나타남. => Hash Group by 
+select deptno, job, sum(sal), max(sal), min(sal)
+FROM emp 
+GROUP by deptno, job;
+
+-- 4. Sort Unique : 결과 집합에서 중복 레코드를 제거할 때 나타남 => Union / Distinct 
+SELECT DISTINCT deptno FROM emp ORDER BY deptno;
+
+-- 5. Sort Join : 소트 머지 조인을 수행할때 나타남. 
+SELECT /*+ ordered use_merge(e) */ * 
+FROM emp e, dept d 
+WHERE d.deptno = e.deptno;
+
+-- 6. Window Sort : 윈도우 함수를 수행할 때 나타남. 
+SELECT empno, ename, job, mgr, sal, row_number() over(ORDER BY hiredate) FROM emp;
+
+-- 소트가 발생하지 않도록 SQL 작성
+-- 1. Unoin을 Union All로 대체 
+select empno, job, mgr from emp where deptno = 10
+union
+select empno, job, mgr from emp where deptno = 20;
+
+-- 2. Distinct를 Exists 서브쿼리로 대체 
+-- SELECT DISTINCT 과금연월 
+-- FROM 과금
+-- where 과금연월 <= :yyyymm
+-- and 지역 like :reg || '%'
+
+-- select 연월 
+-- FROM 연월테이블 a 
+-- where 연월 <= :yyyymm
+-- and exists (
+--    select 'x'
+--  from 과금 
+--  where 과금연월 = a.연월 
+--   and 지역 like :reg || '%'
+-- ) 
+
+-- TOP N 쿼리 
+-- 1. SQL Server 
+-- select top 10 거래일시, 체결건수, 체결수량, 거래대금 
+-- from 시간별종목거래 
+-- where 종목코드 = 'KR123456'
+-- and 거래일시 >= '20080304'
+
+-- 2. IBM DB2 
+-- select 거래일시, 체결건수, 체결수량, 거래대금 
+-- from 시간별종목거래
+-- where 종목코드 = 'KR123456'
+-- and 거래일시 >= '20080304'
+-- order by 거래일시 
+-- fetch first 10 rows only 
+
+-- 3. Oracle 
+-- select * from (
+--   select 거래일시, 체결건수, 체결수량, 거래대금
+--   from 시간별종목거래 
+--   where 종목코드 = 'KR123456'
+--   and 거래일시 >= '20080304'
+--   order by 거래일시
+-- ) 
+-- where rownum <= 10
+
+-- [윈도우 함수에서의 TOP N 쿼리]
+-- select 고객ID, 변경순번, 전화번호, 주소, 자녀수, 직업, 고객등급
+-- from (select   고객ID, 변경순번
+--             , max(변경순번) over (partition by 고객ID) 마지막변경순번
+--            , 전화번호, 주소, 자녀수, 직업, 고객등급
+--       from 고객변경이력)
+-- where 변경순번 = 마지막변경순번
+
+-- select 고객ID, 변경순번, 주소, 자녀수, 직업, 고객등급
+-- from (select 고객ID, 변경순번
+--            , rank() over(partition by 고객 ID order by 변경순번) rnum 
+--            , 전화번호, 주소, 자녀수, 직업, 고객등급
+--       from 고객변경이력)
+-- where rnum = 1; 
+
+-- 12c 버전 이후 
+-- select 장비번호, 장비명 
+--      , substr(최종이력, 1, 8) 최종변경일자 
+--      , to_number(substr(최종이력, 9, 4)) 최종변경순번 
+--      , substr(최종이력, 13) 최종상태코드 
+-- from (
+--      select 장비번호, 장비명 
+--          , (select 변경일자 || lpad(변경순번, 4) || 상태코드 
+--             from (select 변경일자, 변경순번, 상태코드 
+--                   from 상태변경이력
+--                   where 장비번호 = p.장비번호
+--                   order by 변경일자 desc, 변경순번 desc)
+-- 			   where rownum <= 1) 최종이력 
+--		from 장비 p
+--		where 장비구분코드 = 'A001'
+-- )
+
+-- Oracle 수정 가능 조인 뷰 활용 
+-- update 
+-- 		(select c.최종거래일시, c.최근거래금액, t.거래일시, t.거래금액 
+--		 from (select 고객번호, max(거래일시) 거래일시, sum(거래금액) 거래금액 
+--			   from 거래 
+--			   where 거래일시 >= trunc(add_months(sysdate, -1)) 
+--			   group by 고객번호) t 
+--			   , 고객 c 
+--		 where c.고객번호 = t.고객번호) 
+-- set 	  최종거래일시 = 거래일 
+--		, 최근거래금액 = 거래금
+
+-- Oracle Merge 문 활용
+-- merge into 고객 t using 고객변경분 s on (t.고객번호 = s.고객번호) 
+-- when matched then update 
+-- 	set t.고객번호 = s.고객번호, t.고객명 = s.고객명, t.이메일 = s.이메일, 
+-- when not matched then insert 
+--	(고객번호, 고객명, 이메일, 전화번호, 거주지역, 주소, 등록일시) values 
+--	(s.고객번호, s.고객명, s.이메일, s.전화번호, s.거주지역, s.주소, s.등록일시) 
+
+-- 파티셔닝 
+-- create table 주문 (주문번호 number, 주문일자 varchar2(8), 고객id varchar2(5), )
+-- partition by range(주문일자) (
+--	partition p2009_q1 values less than ('20090401')
+--	, partition p2009_q1 values less than ('20090701')
+--	, partition p2009_q1 values less than ('20091001')
+--	, partition p2009_q1 values less than ('20100101')
+--	, partition p2009_q1 values less than ('20100401')
+--	, partition p2009_q1 values less than (MAXVALUE) -> 주문일자 >= '20100401'
+--)
+
+-- 병렬 처리 활용 
+-- parallel 힌트를 사용할 때 반드시 full 힌트도 함께 사용해야함. 
+-- 옵티마이저에 의해 인덱스 스캔이 선택되면 parallel 힌트가 무시. 
+-- select /*+ full(o) parallel(o, 4) */ 
+--		  count(*) 주문건수, sum(주문수량) 주문수량, sum(주문금액) 주문금액 
+-- from 주문 o 
+-- where 주문일시 between '20100101' and '20101231'
+
+-- parallel_index 힌트를 사용할 때, 반드시 index 또는 index_ffs 힌트도 함께 사용이 필요. 
+-- 옵티마이저가 Full Table Scan을 선택하면 parallel_index 힌트가 무시되기 때문. 
+-- select /*+ index_ffs(o, 주문_idx) parallel_index(o, 주문_idx, 4) */
+-- 		  count(*) 주문검수 
+-- from 주문 o 
+-- where 주문일시 between '20100101' and '20101231'
+
+-- SQL Server 
+-- select count(*) 주문건수
+-- from 주문 
+-- where 주문일시 between '20100101' and '20101231'
+-- option (maxdop 4)
+
+-- select /*+ ordered use_hash(d) full(d) full(e) noparallel(d) parallel(e 4) */
+--		  count(*), min(sal), max(sal), avg(sal), sum(sal)
+-- from dept d, emp e 
+-- where d.loc = 'CHICAGO'
+-- and e.deptno = d.deptno
+
+-- 페이징처리 
+-- select *
+-- from (
+--		select rownum no, 거래일시, 체결건수 
+--			 , 체결수량, 거래대금, count(*) over() cnt 
+-- 		from (
+--			select 거래일시, 체결건수, 체결수량, 거래대금 
+--			from 시간별종목거래 
+--			where 종목코드 = :isu_cd 
+--			and 거래일시 >= :trd_time 
+--			order by 거래일시
+--		) 
+-- 		where rownum <= :page * :pgsize + 1
+-- )
+-- where no between (:page - 1) * :pgsize + 1 and :pgsize * :page
