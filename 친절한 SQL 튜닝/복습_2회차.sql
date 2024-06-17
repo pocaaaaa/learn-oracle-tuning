@@ -55,3 +55,150 @@ FROM (SELECT /*+ full(c) full(h) leading(c) use_hash(h) */
 	  AND h.변경일시 < trunc(sysdate, 'mm')
 	  AND h.고객번호 = c.고객번호)
 WHERE NO = 1 
+
+
+SELECT 부서번호, SUM(수량)
+FROM 판매집계 
+WHERE 부서번호 LIKE '12%'
+GROUP BY 부서번호; 
+
+-- IOT / 클러스터형 인덱스 : 테이블 블록 데이터를 인덱스 리프 블록에서 모두 저장 
+-- IOT는 인덱스 구조 테이블 -> 정렬 상태를 유지하면서 데이터 입력 
+-- 테이블을 인덱스 구조로 만듬. 
+create table index_org_t (a number, b varchar(10), constraint index_org_t_pk primary key (a));
+organization index;
+
+-- 일반 테이블 = '힙 구조 테이블' -> 데이터를 입력할 때 랜덤 방식을 사용 
+create table heap_org_t (a number, b varchar(10), constraint heap_org_t_pk primary key (a));
+organization heap; 
+
+-- IOT는 인위적으로 클러스터링 팩터를 좋게 만드는 방법 중 하나. 
+-- ex) 실등록은 일자별로 하고 실적조회는 사원별로 한다. 
+--     -> 클러스터링 팩터가 매우 안 좋아서 조회 건수 만큼 블록 I/O 발생 
+select substr(일자, 1, 6) 월도 
+    , sum(판매금액) 총판매금액, avg(판매금액) 평균판매금액 
+from 영업실적 
+where 사번 = 'S1234'
+and 일자 between '20180101' and '20181231'
+group by substr(일자, 1, 6);
+
+-- 사번이 첫 번째 정렬 기준이 되도록 IOT를 구성 -> 네 개 블록만 읽고 처리 가능 
+create table 영업실적 (사번 varchar2(5), 일자 varchar2(8), ..., constraint 영업실적_pk primary key (사번, 일자)) organization index; 
+
+
+-- 클러스터 테이블 : 키 값이 같은 데이터를 같은 공간에 저장해둘 뿐, IOT나 SQL Server의 클러스터형 인덱스처럼 정렬하지 않음. 
+--  1. 인덱스 클러스터 
+--    1) 클러스터 생성 
+create cluster c_dept# (deptno number(2)) index; 
+--    2) 클러스터 인덱스 정의 : 클러스터 인덱스는 데이터 검색 용도로 사용할 뿐만 아니라 데이터 저장될 위치를 찾을 때도 사용하기 때문에 반드시 정의 
+create index c_dept#_idx on cluster c_dept#;
+--    3) 클러스터 테이블 생성 
+create table dept (
+   deptno number(2) not null, 
+   dname varchar2(14) not null, 
+   loc varchar2(13)
+)
+cluster c_dept#(deptno);
+
+--  2. 해시 클러스터 
+--    1) 클러스터 생성
+create cluster c_dept# (deptno number(2)) hashkeys 4;
+--    2) 클러스터 테이블 생성 
+create table dept (
+   deptno number(2) not null, 
+   dname varchar2(14) not null, 
+   loc varchar2(13)
+)
+cluster c_dept#(deptno);
+
+
+-- 부분범위처리 : 앞쪽 일부만 출력하고 멈출수 있는가. 
+
+-- 배치 I/O
+create index emp_x01 on emp(deptno, job, empno);
+set autotrace traceonly exp;
+select * from emp e where deptno = 20 order by job, empno; 
+
+select /*+ batch_table_access_by_rowid(e) */ *
+from emp e 
+where deptno = 20 
+order by job, empno; 
+
+
+-- 인덱스를 이용한 테이블 액세스 비용 
+-- 비용 = 인덱스 수직적 탐색 비용 + 인덱스 수평적 탐색 비용 + 테이블 랜덤 액세스 비용 
+--     = 인덱스 루트와 브랜치 레벨에서 읽는 블록 수 +
+--       인덱스 리프 블록을 스캔하는 과정에서 읽는 블록 수 + 
+--       테이블 액세스 과정에서 읽는 블록 수 
+
+
+-- 4장.조인튜닝 
+SELECT e.사원명, c.고객명, c.전화번호
+FROM 사원 e, 고객 c 
+WHERE e.입사일자 >= '19960101'
+AND c.관리사원번호 = e.사원번호; 
+
+-- 일반적으로 NL조인은 Outer와 Inner 양쪽 테이블 모두 인덱스를 이용. 
+BEGIN
+	FOR OUTER IN (SELECT 사원번호, 사원명 FROM 사원 WHERE 입사일자 >= '19960101')
+	loop -- OUTER 루프
+		FOR INNER IN (SELECT 고객명, 전화번호 FROM 고객
+					  WHERE 관리사원번호 = OUTER.사원번호) 
+		loop -- INNER 루프 
+			dbms_output.put_line (
+				OUTER.사원명 || ' : ' || INNER.고객명 || ' : ' || INNER.전화번호 
+			);
+		end loop;		
+	end loop;
+END;
+
+-- use_nl 힌트
+-- ordred 와 use_nl 힌트를 같이 사용했으므로 사원 테이블 (-> Driving 또는 Outger Table) 기준으로 고객 테이블 (-> Inner 테이블)과 NL 방식으로 조인하라는 뜻. 
+SELECT /*+ ordered use_nl(c) */
+		e.사원명, c.고객명, c.전화번호
+FROM 사원 e, 고객 c 
+WHERE e.입사일자 >= '19960101'
+AND c.관리사원번호 = e.사원번호;
+
+-- 사원_PK : 사원번호
+-- 사원_X1 : 입사일자 * 
+-- 고객_PK : 고객번호 
+-- 고객_X1 : 관리사원번호 *  
+-- 고객_X2 : 최종주문금액 
+SELECT /+ ordered use_nl(c) index(e) index(c) */ 
+		e.사원번호, e.사원명, e.입사일자,
+		c.고객번호, c.고객명, c.전화번호, c.최종주문금액 
+FROM 사원 e, 고객 c 
+WHERE c.관리사원번호 = e.사원번호 -- 3 
+AND e.입사일자 >= '19960101' -- 1
+AND e.부서코드 = 'Z123' -- 2
+AND c.최종주문금액 >= 20000; -- 4
+
+-- [중요] 각 단계를 모두 완료하고 다음 단계로 넘어가는 게 아니라 한 레코드씩 순차적으로 진행. 
+
+-- NL 조인 특성 => 소량 데이터를 주로 처리하거나 부분 범위 처리가 가능한 온라인 트랜잭션 처리(OLTP) 시스템에 적합. 
+-- 1) 랜덤 액세스 위주의 조인 방식 
+-- 2) 한 레코드씩 순차적으로 진행한다는 점
+--    -> 대량의 데이터 처리 시 치명적인 한계 발생 
+--    -> 아무리 큰테이블을 조인해도 매우 빠른 속도를 낼 수 있음. (부분범위 처리가 가능한 상황이라면) 
+-- 3) 인덱스 구성 전략이 특히 중요 
+
+SELECT /*+ ordered use_nl(b) index_desc(a(게시판구분, 등록일시)) */ 
+	a.게시글ID, a.제목, b.작성자명, a.등록일시 
+FROM 게시판 a, 사용자 b 
+WHERE a.게시판구분 = 'NEWS'	-- 게시판IDX: 게시판구분 + 등록일시 
+AND b.사용자ID = a.작성자 ID 	-- 사용자IDX: 사용자ID 
+ORDER BY a.등록일시 DESC; 
+
+-- cr : 논리적인 블록 요청 횟수 
+-- pr : 디스크에서 읽은 블록 수 
+-- pw : 디스크에 쓴 블록 수 
+
+-- NL 조인 성능 높이기 위해 '테이블 Prefetch', '배치 I/O' 기능을 도입. 
+
+SELECT * 
+FROM PRA_HST_STC a, ODEM_TRMS b 
+WHERE a.SALE_ORG_ID = :sale_org_id 
+AND b.STRD_GRP_ID = a.STRD_GRP_ID
+AND b.STRD_ID = a.STRD_ID
+ORDER BY a.STC_DT DESC; 
