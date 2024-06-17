@@ -5,7 +5,10 @@
 -- 4. index() 
 -- 5. nlj_batching 
 -- 6. no_nlj_batching  
-
+-- 7. use_merge() : 소트 머지 조인 유도 
+-- 8. use_hash() : 해시 조인 유도 
+-- 9. swap_join_inputs()
+-- 10. no_swap_join_inputs()
 
 -- ex) A -> B -> C -> D순으로 조인하되, B와 조인할 때 그리고 이어서 C와 조인할 때는 NL 방식으로 조인하고, 
 --     D와 조인할 때는 해시 방식으로 조인하라는 뜻.  
@@ -23,3 +26,11 @@ SELECT /*+ use_nl (A, B, C, D) */ *
 FROM A, B, C, D
 WHERE .... 
 
+/*+ leading(T1, T2, T3) swap_join_inputs(T2) */ 
+/*+ leading(T1, T2, T3) swap_join_inputs(T3) */ 
+/*+ leading(T1, T2, T3) swap_join_inputs(T2) swap_join_inputs(T3) */
+/*+ leading(T1, T2, T3) no_swap_join_inputs(T3) */ 
+SELECT /*+ leading(T1, T2, T3) use_hash(T2) use_hash(T3) */ *
+FROM T1, T2, T3 
+WHERE T1.KEY = T2.KEY 
+AND T2.KEY = T3.KEY; 

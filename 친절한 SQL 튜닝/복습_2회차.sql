@@ -202,3 +202,97 @@ WHERE a.SALE_ORG_ID = :sale_org_id
 AND b.STRD_GRP_ID = a.STRD_GRP_ID
 AND b.STRD_ID = a.STRD_ID
 ORDER BY a.STC_DT DESC; 
+
+SELECT /*+ ordered use_nl(b) */ 
+		A.등록일시, A.번호, A.제목, B.회원명, A.게시판유형, A.질문유형 
+FROM (
+	SELECT A.*, ROWNUM NO 
+	FROM (
+		SELECT 등록일시, 번호, 제목, 작성자번호, 게시판유형, 질문유형 
+		FROM 게시판 
+		WHERE 게시판유형 = :TYPE
+		ORDER BY 등록일시 DESC -- 인덱스 구성 : 게시판유형 + 등록일시 
+	) A 
+	WHERE ROWNUM <= (:page * 10)
+) A, 회원 B
+WHERE A.NO >= (:page - 1) * 10 + 1
+AND B.회원번호 = A.작성자번호 
+ORDER BY A.등록일시 DESC; -- 11g부터 여기에 ORDER BY를 명시해야 정렬 순서 보장 
+
+-- 소트 머지 조인 
+--  1) 소트 단계 : 양쪽 집합을 조인 컬럼 기준으로 정렬 
+--  2) 머지 단계 : 정렬한 양쪽 집합을 서로 머지 (Merge)
+
+SELECT /*+ ordered use_merge(c) */
+		e.사원번호, e.사원명, e.입사일자 
+		, c.고객번호, c.고객명, c.전화번호, c.최종주문금액 
+FROM 사원 e, 고객 c 
+WHERE c.고객사원번호 = e.사원번호 
+AND e.입사일자 >= '19960101'
+AND e.부서코드 = 'Z123'
+AND c.최종주문금액 >= 20000; 
+
+-- 1) [소트단계] 아래 결과집합을 PGA 영역에 할당된 Sort Area에 저장 -> PGA 담을수 없을 정도로 크면, Temp 테이블 스페이스에 저장. 
+SELECT 사원번호, 사원명, 입사일자 
+FROM 사원 
+WHERE 입사일자 >= '19960101'
+AND 부서코드 = 'Z123'
+ORDER BY 사원번호; 
+
+-- 2) [소트단계] 아래 결과집합을 PGA 영역에 할당된 Sort Area에 저장 -> PGA 담을수 없을 정도로 크면, Temp 테이블 스페이스에 저장. 
+SELECT 고객번호, 고객명, 전화번호, 최종주문금액, 관리사원번호 
+FROM 고객 c 
+WHERE 최종주문금액 >= 20000 
+ORDER BY 관리사원번호; 
+
+-- 3) [머지단계]
+BEGIN 
+	FOR OUTER IN (SELECT * FROM PGA에_정렬된_사원)
+	loop -- OUTER 루프 
+		FOR INNER IN (SELECT * FROM PGA에_정렬된_고객
+					  WHERE 관리사원번호 = OUTER.사원번호)
+		loop -- INNER 루프 
+			dbms_output.put_line ( ... );
+		end loop;
+	end loop;
+END;
+
+
+-- 해시 조인 
+--  1) Build 단계 : 작은 쪽 테이블(Build Input)을 읽어 해시 테이블(해시 맵)을 생성한다. 
+--  2) Probe 단계 : 큰 쪽 테이블(Probe Input)을 읽어 해시 테이블을 탐색하면서 조인한다. 
+
+SELECT /*+ ordered use_hash(c) */
+		e.사원번호, e.사원명, e.입사일자 
+		, c.고객번호, c.고객명, c.전화번호, c.최종주문금액 
+FROM 사원 e, 고객 c 
+WHERE c.고객사원번호 = e.사원번호 
+AND e.입사일자 >= '19960101'
+AND e.부서코드 = 'Z123'
+AND c.최종주문금액 >= 20000; 
+
+-- 1) Build : 해시 테이블 생성. PGA 영역에 할당된 Hash Area에 저장. PGA에 담을 수 없으면 Temp 테이블스페이스에 저장. 
+SELECT 사원번호, 사원명, 입사일자 
+FROM 사원 
+WHERE 입사일자 >= '19960101'
+AND 부서코드 = 'Z123';
+
+-- 2) Probe : 고객 데이터를 하나씩 읽어 1)에서 생성한 해시 테이블을 탐색. 
+SELECT 고객번호, 고객명, 전화번호, 최종주문금액, 관리사원번호 
+FROM 고객 
+WHERE 최종주문금액 >= 20000; 
+
+-- 3) PL/SQL
+BEGIN 
+	FOR OUTER IN (SELECT 고객번호, 고객명, 전화번호, 최종주문금액, 관리사원번호
+				  FROM 고객 
+				  WHERE 최종주문금액 >= 20000)
+	loop -- OUTER 루프 
+		FOR INNER JOIN (SELECT 사원번호, 사원명, 입사일자 
+						FROM PGA에_생성한_사원_해시맵
+						WHERE 사원번호 = OUTER.관리사원번호)
+		loop -- INNER 루프 
+			dbms_output.put_line( ... );
+		end loop;
+	end loop;
+END;
