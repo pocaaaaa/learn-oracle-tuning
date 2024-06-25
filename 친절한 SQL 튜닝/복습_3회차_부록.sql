@@ -187,3 +187,69 @@ AND r.name = 'user_dump_dest'
 AND s.sid = (SELECT sid FROM v$mystat WHERE rownum <= 1);
 
 -- tkprof
+
+
+-- ========================================================================================
+-- ========================================================================================
+-- 4. DBMS_XPLAN 패키지 
+
+explain plan FOR 
+SELECT * FROM emp WHERE empno = 7900;
+
+SELECT plan_table_output 
+FROM table(dbms_xplan.display('plan_table', NULL, 'serial'));
+
+explain plan SET statement_id = 'SQL1' FOR 
+SELECT * 
+FROM emp e, dept d 
+WHERE d.deptno = e.deptno 
+AND e.sal >= 1000;
+
+SELECT * FROM table(dbms_xplan.display('PLAN_TABLE', 'SQL1', 'BASIC'));
+SELECT * FROM table(dbms_xplan.display('PLAN_TABLE', 'SQL1', 'BASIC ROWS BYTES COST'));
+
+SELECT prev_sql_id AS sql_id, prev_child_number AS child_no
+FROM v$session
+WHERE sid = userenv('sid')
+AND username IS NOT NULL 
+AND prev_hash_value <> 0;
+
+SELECT sql_id, child_number, sql_fulltext, last_active_time 
+FROM v$sql 
+WHERE sql_text LIKE '%select /* comment */%from%emp%dept';
+
+SELECT * FROM table(dbms_xplan.display_cursor(NULL, NULL, 'BASIC ROWS BYTES COST PREDICATE'));
+
+SELECT * FROM table(dbms_xplan.display_cursor(NULL, NULL, 'ALLSTATS LAST'));
+
+
+-- ========================================================================================
+-- ========================================================================================
+-- 5. 실시간 SQL 모니터링 
+select dbms_sqltune.report_sql_monitor(sql_id=>'6x50yqwz81sfa') from dual;
+select dbms_sqltune.report_sql_monitor(sql_id=>'6x50yqwz81sfa', type=>'html') from dual;
+
+
+-- ========================================================================================
+-- ========================================================================================
+-- 6.V$SQL
+SELECT sql_id, child_number, sql_text, sql_fulltext, parsing_schema_name 
+	 , loads, invalidations, parse_calls, executions, fetches, rows_processed 
+	 , cpu_time, elapsed_time 
+	 , buffer_gets, disk_reads, sorts 
+	 , first_load_time, last_active_time 
+FROM v$sql;
+
+SELECT parsing_schema_name "업무", count(*) "SQL개수"
+	 , sum(executions) "수행횟수"
+	 , round(avg(buffer_gets/executions)) "논리적I/O"
+	 , round(avg(disk_reads/executions)) "물리적I/O"
+	 , round(avg(rows_processed/executions)) "처리건수"
+	 , round(avg(elapsed_time/executions/1000000), 2) "평균소요시간"
+	 , count(CASE WHEN elapsed_time/executions/1000000 >= 10 THEN 1 end) "악성 SQL" 
+	 , round(max(elapsed_time/executions/1000000), 2) "최대소요시간"
+FROM v$sql 
+WHERE parsing_schema_name IN ('SYSTEM', 'SQLP')
+AND last_active_time >= to_date('20090315', 'yyyymmdd')
+AND executions > 0 
+GROUP BY parsing_schema_name;
