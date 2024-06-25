@@ -151,4 +151,39 @@ Statistics
 -- ========================================================================================
 -- ========================================================================================
 -- 3. SQL 트레이스 
-	  
+SQL> alter session set sql_trace = true;
+
+Session altered.
+
+SQL> select * from emp where empno = 7900;
+
+     EMPNO ENAME      JOB	       MGR HIREDATE	    SAL       COMM     DEPTNO
+---------- ---------- --------- ---------- --------- ---------- ---------- ----------
+      7900 JAMES      CLERK	      7698 03-DEC-81	    950 		   30
+
+SQL> select * from dual;
+
+D
+-
+X
+
+SQL> alter session set sql_trace = false;
+
+Session altered.
+
+SQL> select value 
+  2  from v$diag_info
+  3  where name = 'Diag Trace';
+
+ SELECT value 
+ FROM v$diag_info 
+ WHERE name = 'Default Trace File';
+ 
+SELECT r.value || '/' || lower(t.instance_name) || '_ora_' 
+	|| ltrim(to_char(p.spid)) || '.trc' trace_file 
+FROM v$process p, v$session s, v$parameter r, v$instance t 
+WHERE p.addr = s.paddr 
+AND r.name = 'user_dump_dest'
+AND s.sid = (SELECT sid FROM v$mystat WHERE rownum <= 1);
+
+-- tkprof
