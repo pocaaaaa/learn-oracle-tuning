@@ -43,3 +43,63 @@ Predicate Information (identified by operation id):
    2 - access("DEPTNO"=10 AND "NO"=1)
 
    
+SQL> select /*+ index(t t_x02) */ * from t 
+  2  where deptno = 10
+  3  and no = 1;
+
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 3077781317
+
+-------------------------------------------------------------------------------------
+| Id  | Operation		    		| Name  | Rows  | Bytes | Cost (%CPU)| Time     |
+-------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT	    	|	    |	  3 |	126 |	  7   (0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| T     |	  3 |	126 |	  7   (0)| 00:00:01 |
+|*  2 |   INDEX SKIP SCAN	    	| T_X02 |	  3 |	    |	  6   (0)| 00:00:01 |
+-------------------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   2 - access("DEPTNO"=10 AND "NO"=1)
+       filter("NO"=1)
+       
+SQL> select /*+ full(t) */ * from t 
+  2  where deptno = 10
+  3  and no = 1;
+
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 1601196873
+
+--------------------------------------------------------------------------
+| Id  | Operation	  		| Name 	| Rows  | Bytes | Cost (%CPU)| Time	 |
+--------------------------------------------------------------------------
+|   0 | SELECT STATEMENT  	|	 	|     3 |   126 |    27   (4)| 00:00:01 |
+|*  1 |  TABLE ACCESS FULL	| T	 	|     3 |   126 |    27   (4)| 00:00:01 |
+--------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   1 - filter("NO"=1 AND "DEPTNO"=10)
+   
+
+   
+-- ========================================================================================
+-- ========================================================================================
+-- 1.2 SQL 공유 및 재사용 
+SELECT * FROM v$sql;
+
+
+-- ========================================================================================
+-- ========================================================================================
+-- 1.2 데이터 저장 구조 및 I/O 메커니즘 
+SELECT segment_name, segment_type, tablespace_name, extent_id, file_id, block_id, blocks
+FROM dba_extents 
+WHERE owner = USER 
+-- AND segment_name = ''
+ORDER BY extent_id;
+
+SELECT value FROM v$parameter WHERE name = 'db_block_size';
