@@ -95,7 +95,7 @@ SELECT * FROM v$sql;
 
 -- ========================================================================================
 -- ========================================================================================
--- 1.2 데이터 저장 구조 및 I/O 메커니즘 
+-- 1.3 데이터 저장 구조 및 I/O 메커니즘 
 SELECT segment_name, segment_type, tablespace_name, extent_id, file_id, block_id, blocks
 FROM dba_extents 
 WHERE owner = USER 
@@ -103,3 +103,5 @@ WHERE owner = USER
 ORDER BY extent_id;
 
 SELECT value FROM v$parameter WHERE name = 'db_block_size';
+
+SELECT * FROM v$sga;
