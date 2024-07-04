@@ -30,5 +30,77 @@ FROM (
 )
 WHERE NO = 1; 
 
+CREATE TABLE 영업실적 (사번 varchar2(5), 일자 varchar2(8), CONSTRAINT 영업실적_pk PRIMARY KEY (사번, 일자)) 
+organization INDEX;
+
+-- 인덱스 클러스터 테이블 구성
+-- 1. 클러스터 생성
+create cluster c_dept# (deptno number(2)) index;
+
+-- 2. 클러스터 인덱스 정의 -> 클러스터 인덱스는 데이터 검색 용도로 사용할 뿐만 아니라 데이터가 저장된 위치를 찾을때도 사용. 
+create index c_dept#_idx on cluster c_dept#;
+
+-- 3. 클러스터 테이블 생성
+create table dept (
+  deptno number(2) not null
+, dname varchar2(14) not null
+, loc varchar2(13) )
+cluster c_dept#(deptno);
+
+-- 4. 클러스터 인덱스로 조회할 때 실행계획 
+SQL > select * from dept where deptno = :deptno;
+
+Execution Plan
+-------------------------------------------------------------------
+0   SELECT STATEMENT Optimizer=ALL_ROWS (Cost=1 Card=1 Bytes=30)
+1 0  TABLE ACCESS (CLUSTER) OF 'DEPT' (CLUSTER) (Cost=1 Card=1 Bytes=30)
+2 1   INDEX (UNIQUE SCAN) OF 'C_DEPT#_IDX' (INDEX (CLUSTER)) (Cost=1 Card=1) 
 
 
+-- 해시 클러스터 테이블 구성
+-- 1. 클러스터 생성
+create cluster c_dept# (deptno number(2)) hashkeys 4 ;
+
+-- 2. 클러스터 테이블 생성
+create table dept (
+  deptno number(2) not null
+, dname varchar2(14) not null
+, loc varchar2(13) )
+cluster c_dept#( deptno );
+
+-- 3. 해시 클러스터 조회할 때 실행계획 
+SQL > select * from dept where deptno = :deptno;
+
+Execution Plan
+-------------------------------------------------------------------
+0   SELECT STATEMENT Optimizer=ALL_ROWS (Cost=0 Card=1 Bytes=30)
+1 0  TABLE ACCESS (HASH) OF 'DEPT' (CLUSTER (HASH)) (Card=1 Bytes=30)
+
+
+-- ========================================================================================
+-- ========================================================================================
+-- 3-2. 부분범위 처리 활용 
+
+SQL> create index emp_x01 on emp(deptno, job, empno);
+
+Index created.
+
+SQL> set autotrace traceonly exp;
+SQL> select * from emp e where deptno = 20 order by job, empno;
+
+Execution Plan
+----------------------------------------------------------
+Plan hash value: 1549005378
+
+---------------------------------------------------------------------------------------
+| Id  | Operation		    		| Name    | Rows  | Bytes | Cost (%CPU)| Time     |
+---------------------------------------------------------------------------------------
+|   0 | SELECT STATEMENT	    	|	      |     5 |   190 |     2	(0)| 00:00:01 |
+|   1 |  TABLE ACCESS BY INDEX ROWID| EMP     |     5 |   190 |     2	(0)| 00:00:01 |
+|*  2 |   INDEX RANGE SCAN	    	| EMP_X01 |     5 |       |     1	(0)| 00:00:01 |
+---------------------------------------------------------------------------------------
+
+Predicate Information (identified by operation id):
+---------------------------------------------------
+
+   2 - access("DEPTNO"=20)
