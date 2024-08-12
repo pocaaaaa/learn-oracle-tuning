@@ -241,3 +241,247 @@ AND NOT EXISTS (SELECT 'X' FROM 구조활동
                 WHERE 출동센터ID = :V_CNTR_ID
                 AND 상황접수번호 = ST.상황접수번호)
 ORDER BY ST.상황접수번호, ST.관제일시
+
+
+-- =================================================================================
+-- =================================================================================
+-- 5-3.소트가 발생하지 않도록 SQL 작성
+-- * 종목거래_PK : 종목코드 + 거래일시
+-- * 종목거래_N1 : 종목코드 
+
+select 거래일시, 체결건수, 채결수량, 거래대금
+from 종목거래
+where 종목코드 = 'KR123456'
+order by 거래일시 
+
+-- // 종목거래_N1 
+--------------------------------------------------------------------------------
+| Id | Operation                     | Name      |  Rows | Bytes | Cost (%CPU) |
+--------------------------------------------------------------------------------
+|  0 | SELECT STATEMENT              |           | 40000 | 3515K |  2041   (1) |
+|  1 |  SORT ORDER BY                |           | 40000 | 3515K |  2041   (1) |
+|  2 |   TABLE ACCESS BY INDEX ROWID | 종목       | 40000 | 3515K |  1210   (1) |
+|  3 |    INDEX RANGE SCAN           | 종목거래_N1 | 40000 | 3515K |    96   (2) |
+--------------------------------------------------------------------------------
+
+-- // 종목거래_PK
+-- // 소트 연산을 생략함으로써 종목코드 = 'KR123456' 조건을 만족하는 전체 레코드를 읽지 않고도 바로 결과집합 출력 
+-- // 부분범위 처리 가능한 상태가 되었음. 
+--------------------------------------------------------------------------------
+| Id | Operation                     | Name      |  Rows | Bytes | Cost (%CPU) |
+--------------------------------------------------------------------------------
+|  0 | SELECT STATEMENT              |           | 40000 | 3515K |  1372   (1) |
+|  1 |   TABLE ACCESS BY INDEX ROWID | 종목       | 40000 | 3515K |  1372   (1) |
+|  2 |    INDEX RANGE SCAN           | 종목거래_PK | 40000 | 3515K |   258   (2) |
+--------------------------------------------------------------------------------
+
+-- SQL Server 나 Sybase 
+select TOP 10 거래일시, 체결건수, 체결수량, 거래대금
+from 종목거래
+where 종목코드 = 'KR123456'
+and 거래일시 >= '20180304'
+group by 거래일시
+
+-- IBM DB2 -> Row Limiting 
+select 거래일시, 체결건수, 체결수량, 거래대금
+from 종목코드
+where 종목코드 = 'KR123456'
+and 거래일시 >= '20180304'
+order by 거래일시
+FETCH FIRST 10 ROWS ONLY;
+
+-- 오라클
+-- '종목코드 + 거래일시' 순으로 구성된 인덱스를 이용하면, 옵티마이저는 소트 연산을 생략. 
+select * from (
+  select 거래일시, 체결건수, 체결수량, 거래대금
+  from 종목거래
+  where 종목코드 = 'KR123456'
+  and 거래일시 >= '20180304'
+  order by 거래일시
+)
+where rownum <= 10
+
+-- Order By 아래 쪽 ROWNUM은 단순한 조건절이 아님.
+-- 'Top N Stopkey' 알고리즘을 작동하게 하는 열쇠. 
+select *
+from (
+  select rownum no, a.*
+  from 
+    (
+      select 거래일시, 체결건수, 체결수량, 거래대금
+      from 종목거래
+      where 종목코드 = 'KR123456'
+      and 거래일시 >= '20180304'
+      order by 거래일시
+    )
+  where rownum <= (:page * 10)
+  )
+where no >= (:page-1)*10 + 1
+
+SELECT 장비번호, 장비명, 상태코드
+     , SUBSTR(최종이력, 1, 8) 최종변경일자
+     , TO_NUMBER(SUBSTR(최종이력, 9, 4)) 최종변경순번
+FROM (
+  SELECT 장비번호, 장비명, 상태코드
+       , (SELECT MAX(H.변경일자 || LPAD(H.변경순번, 4))
+          FROM 상태변경이력 H
+          WHERE 장비번호 = P.장비번호) 최종이력
+  FROM 장비 P
+  WHERE 장비구분코드 = 'A001'
+)
+
+-- 장비별 상태변경이력이 많아 성능에 문제가 된다면, 차라리 아래와 같이 쿼리하는 게 나음. 
+-- 쿼리가 복잡하고 상태변경이력을 세 번 조회하는 비효율은 있지만, 'First Row Stopkey' 알고리즘이 잘 작동하므로 성능은 비교적 좋음. 
+SELECT 장비번호, 장비명, 상태코드
+     , (SELECT MAX(H.변경일자)
+        FROM 상태변경이력 H
+        WHERE 장비번호 = P.장비번호) 최종변경일자
+     , (SELECT MAX(H.변경순번)
+        FROM 상태변경이력 H
+        WHERE 장비번호 = P.장비번호
+        AND 변경일자 = (SELECT MAX(H.변경일자)
+                      FROM 상태변경이력 H
+                      WHERE 장비번호 = P.장비번호)) 최종변경순번
+FROM 장비 P
+WHERE 장비구분코드 = 'A001'
+
+-- INDEX_DESC 힌트 활용 
+-- 이 방식의 성능은 좋지만 인덱스 구성이 완벽해야만 쿼리가 잘 작동하는 문제가 있다. 
+SELECT 장비번호, 장비명
+     , SUBSTR(최종이력, 1, 8) 최종변경일자
+     , TO_NUMBER(SUBSTR(최종이력, 9, 4)) 최종변경순번
+     , SUBSTR(최종이력, 13) 최종상태코드
+FROM (
+  SELECT 장비번호, 장비명
+       , (SELECT /*+ INDEX_DESC(X 상태변경이력_PK) */
+                 변경일자 || LPAD(변경순번, 4) || 상태코드
+          FROM 상태변경이력 X
+          WHERE 장비번호 = P.장비번호
+          AND ROWNUM <= 1) 최종이력
+  FROM 장비 P
+  WHERE 장비구분코드 = 'A001'
+)
+
+-- 12c에서는 아래와 같은 패턴도 SQL 파싱 오류 없이 'Top N Stopkey' 알고리즘이 잘 작동함. 
+SELECT 장비번호, 장비명
+     , SUBSTR(최종이력, 1, 8) 최종벼경일자
+     , TO_NUMBER(SUBSTR(최종이력, 9, 4)) 최종변경순번
+     , SUBSTR(최종이력, 13) 최종상태코드
+FROM (
+    SELECT 장비번호, 장비명
+         , (SELECT 변경일자 || LPAD(변경순번, 4) || 상태코드
+            FROM (SELECT 변경일자, 변경순번, 상태코드
+                  FROM 상태변경이력
+                  WHERE 장비번호 = P.장비번호
+                  ORDER BY 변경일자 DESC, 변경순번 DESC)
+            WHERE ROWNUM <= 1) 최종이력
+     FROM 장비 P
+     WHERE 장비구분코드 = 'A001'
+)
+
+-- 전체 장비의 이력을 조회할 때는 아래와 같이 윈도우 함수를 이용하는 것이 효과적.
+-- Full Scan과 해시 조인을 이용하기 때문에 오랜 과거 이력까지 모두 읽지만, 인덱스를 이용하는 방식보다 빠름. 
+SELECT P.장비번호, P.장비명
+     , H.변경일자 AS 최종변경일자
+     , H.변경순번 AS 최종변경순번
+     , H.상태코드 AS 최종상태코드
+FROM 장비 P
+   , (SELECT 장비번호, 변경일자, 변경순번, 상태코드
+           , ROWNUM() OVER (PARTITION BY 장비번호 ORDER BY 변경일자 DESC, 변경순번 DESC) RNUM
+      FROM 상태변경이력) H
+WHERE H.장비번호 = P.장비번호
+AND H.RNUM = 1;
+
+-- KEEP 절을 활용할 수도 있음. 
+SELECT P.장비번호, P.장비명
+     , H.변경일자 AS 최종변경일자
+     , H.변경순번 AS 최종변경순번
+     , H.상태코드 AS 최종상태코드
+FROM 장비 P
+   , (SELECT 장비번호
+           , MAX(변경일자) 변경일자
+           , MAX(변경순번) KEEP (DENSE_RANK LAST ORDER BY 변경일자, 변경순번) 변경순번
+           , MAX(상태코드) KEEP (DENSE_RANK LAST ORDER BY 변경일자, 변경순번) 상태코드
+      FROM 상태변경이력
+      GROUP BY 장비번호) H
+WHERE H.장비번호 = P.장비번호
+
+-- 선분이력 (유효시작일자, 유효종료일자) 모델을 채택하면, 아래와 같이 간단한 쿼리로 쉽게 이력을 조회할 수 있고
+-- 쿼리가 간단한만큼 성능 측면에 이점이 생김
+SELECT P.장비번호, P.장비명
+     , H.상태코드, H.유효시작일자, H.유효종료일자, H.변경순번
+FROM 장비 P, 상태변경이력 H
+WHERE P.장비구분코드 = 'A001'
+AND H.장비번호 = P.장비번호
+AND H.유효종료일자 = '99991231'
+
+SELECT P.장비번호, P.장비명
+     , H.상태코드, H.유효시작일자, H.유효종료일자, H.변경순번
+FROM 장비 P, 상태변경이력 H
+WHERE P.장비구분코드 = 'A001'
+AND H.장비번호 = P.장비번호
+AND :BASE_DT BETWEEN H.유효시작일자 AND H.유효종료일자
+
+
+-- =================================================================================
+-- =================================================================================
+-- 5-4.Sort Area를 적게 사용하도록 SQL 작성
+-- [1번] 보다 [2번]이 Sort Area를 더 적게 사용. 
+-- [1번] 
+select lpad(상품번호, 30) || lpad(상품명, 30) || lpad(고객ID, 10)
+    || lpad(고객명, 20) || to_char(주문일시, 'yyyymmdd hh24:mi:ss')
+from 주문상품
+where 주문일시 between :start and :end 
+
+-- [2번]
+select lpad(상품번호, 30) || lpad(상품명, 30) || lpad(고객ID, 10)
+    || lpad(고객명, 20) || to_char(주문일시, 'yyyymmdd hh24:mi:ss')
+from (
+  select 상품번호, 상품면, 고객ID, 고객명, 주문일시
+  from 주문상품
+  where 주문일시 between :start and :end
+  order by 상품번호
+)
+
+-- [1번] 보다 [2번]이 Sort Area를 더 적게 사용. 
+-- [1번]
+SELECT *
+FROM 예수금원장
+ORDER BY 총예수금 desc
+
+Execution Plan
+---------------------------------------------------
+0    SELECT STATEMENT Optimizer=ALL_ROWS (Cost=184K Card=2M Bytes=716M)
+1 0    SORT (ORDER BY) (Cost=184K Card=2M Bytes=716M)
+2 1      TABLE ACCESS (FULL) OF '예수금원장' (TABLE) (Cost=25K Card=2M Bytes=716M) 
+
+-- [2번] 
+SELECT 계좌번호, 총예수금
+FROM 예수금원장
+ORDER BY 총예수금 desc
+
+Execution Plan
+---------------------------------------------------
+0    SELECT STATEMENT Optimizer=ALL_ROWS (Cost=31K Card=2M Bytes=17M)
+1 0    SORT (ORDER BY) (Cost=31K Card=2M Bytes=17M)
+2 1      TABLE ACCESS (FULL) OF '예수금원장' (TABLE) (Cost=24K Card=2M Bytes=17M) 
+
+
+-- 윈도우 함수 중 rank나 row_number 함수는 max 함수보다 소트 부하가 적음. 
+-- Top N 소트 알고리즘이 작동하기 때문. 
+-- before
+select 장비번호, 변경일자, 변경순번, 상태코드, 메모
+from (select 장비번호, 변경일자, 변경순번, 상태코드, 메모
+           , max(변경순번) over(partition 장비번호) 최종변경순번
+      from 상태변경이력
+      where 변경일자 = :upd_dt)
+where 변경순번 = 최종변경순번
+
+-- after 
+select 장비번호, 변경일자, 변경순번, 상태코드, 메모
+from (select 장비번호, 변경일자, 변경순번, 상태코드, 메모
+           , rank() over(partition 장비번호 order by 변경순번 desc) rnum
+      from 상태변경이력
+      where 변경일자 = :upd_dt)
+where rnum = 1
+
